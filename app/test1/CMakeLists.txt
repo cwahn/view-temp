@@ -1,0 +1,9 @@
+add_executable(test1
+    "src/main.cpp"
+)
+target_link_libraries(test1
+    PRIVATE
+    imgui
+    impolt
+    efp
+)

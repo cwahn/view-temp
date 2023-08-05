@@ -1,6 +1,6 @@
-set(IMGUI_DIR ./imgui)
 
 add_library(imgui STATIC)
+set(IMGUI_DIR ./imgui)
 
 target_sources(imgui
     PRIVATE
@@ -24,3 +24,23 @@ target_link_libraries(imgui
     PUBLIC
     OpenGL::GL
     glfw)
+
+add_library(impolt STATIC)
+set(IMPLOT_DIR ./implot)
+
+target_sources(impolt
+    PRIVATE
+    ${IMPLOT_DIR}/implot.cpp
+    ${IMPLOT_DIR}/implot_items.cpp
+    ${IMPLOT_DIR}/implot_demo.cpp
+)
+
+target_link_libraries(impolt
+    PRIVATE
+    imgui)
+
+target_include_directories(impolt
+    PUBLIC
+    ${IMPLOT_DIR}/
+)
+add_subdirectory(efp)
