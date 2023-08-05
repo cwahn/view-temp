@@ -1,7 +1,7 @@
-add_executable(test1
+add_executable(mk1
     "src/main.cpp"
 )
-target_link_libraries(test1
+target_link_libraries(mk1
     PRIVATE
     imgui
     impolt

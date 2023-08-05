@@ -7,3 +7,6 @@
 [submodule "lib/efp"]
 	path = lib/efp
 	url = https://github.com/cwahn/efp.git
+[submodule "lib/simple-ble"]
+	path = lib/simple-ble
+	url = https://github.com/OpenBluetoothToolbox/SimpleBLE.git

@@ -1,0 +1,11 @@
+add_executable(mk2
+    "src/main.cpp"
+)
+target_link_libraries(mk2
+    PRIVATE
+    imgui
+    impolt
+    efp
+    simpleble::simpleble
+    ble_vital_client
+)
