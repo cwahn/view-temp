@@ -253,7 +253,7 @@ int main(int, char **)
             ImPlot::SetupAxisLimits(ImAxis_X1, drop_n * 10, 1260, ImGuiCond_Always);
             ImPlot::SetupAxisLimits(ImAxis_Y1, 0, 1);
             ImPlot::SetNextFillStyle(IMPLOT_AUTO_COL, 0.5f);
-            ImPlot::PlotLine("FFT", data(freqs) + drop_n, data(ble_frame_snapshot.fft) + drop_n, 125 - drop_n, 0, 0, sizeof(float));
+            ImPlot::PlotLine("FFT", p_data(freqs) + drop_n, p_data(ble_frame_snapshot.fft) + drop_n, 125 - drop_n, 0, 0, sizeof(float));
             ImPlot::EndPlot();
         }
 
