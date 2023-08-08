@@ -181,8 +181,6 @@ int main(int, char **)
 
                             std::cout << "Received " << rx_data.size() << " bytes ";
                             std::cout << "in " << std::dec << read_duration.count() << " ms" << std::endl;
-                            // std::cout << "Characteristic content is: " << std::endl;
-                            // Utils::print_byte_array(rx_data);
                         }
                         catch (SimpleBLE::Exception::OperationFailed &ex)
                         {
