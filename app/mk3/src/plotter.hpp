@@ -27,11 +27,11 @@ static void glfw_error_callback(int error, const char *description)
 
 template <typename F, typename G>
 static void run_window(int width,
-                        int height,
-                        const std::string &title,
-                        const F &init_task,
-                        const G &loop_task,
-                        const ImVec4 &clear_color = ImVec4(36 / 255.f, 39 / 255.f, 45 / 255.f, 1.00f))
+                       int height,
+                       const std::string &title,
+                       const F &init_task,
+                       const G &loop_task,
+                       const ImVec4 &clear_color = ImVec4(36 / 255.f, 39 / 255.f, 45 / 255.f, 1.00f))
 {
     glfwSetErrorCallback(glfw_error_callback);
     if (!glfwInit())
@@ -119,5 +119,22 @@ static void run_window(int width,
     glfwDestroyWindow(window);
     glfwTerminate();
 }
+
+// template <typename SeqT, typename Seqs>
+// rt_plot(
+//     const SeqT &ts,
+//     const Seqs &datas,
+//     const std::vector<std::string> names, )
+// {
+//     ImPlot::SetupAxis(ImAxis_X1, "time(s)", ImPlotAxisFlags_RangeFit);
+//     ImPlot::SetupAxisLimits(ImAxis_X1, minimum(xs), maximum(xs), ImGuiCond_Always);
+
+//     ImPlot::SetupAxis(ImAxis_Y1, "y1", ImPlotAxisFlags_RangeFit);
+//     ImPlot::SetupAxisLimits(ImAxis_Y1, minimum(ys1), maximum(ys1), ImGuiCond_Always);
+
+
+
+//     ImPlot::SetNextFillStyle(IMPLOT_AUTO_COL, 0.5f);
+// }
 
 #endif

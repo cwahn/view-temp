@@ -135,8 +135,8 @@ int main(int, char **)
                 ImPlot::SetupAxisLimits(ImAxis_X1, t - 5., t, ImGuiCond_Always);
                 ImPlot::SetupAxisLimits(ImAxis_Y1, 0, 1);
                 ImPlot::SetNextFillStyle(IMPLOT_AUTO_COL, 0.5f);
-                ImPlot::PlotLine("Mouse X", data(ts), data(xs), length(xs), 0, 0, sizeof(float));
-                ImPlot::PlotLine("Mouse Y", data(ts), data(ys), length(ys), 0, 0, sizeof(float));
+                ImPlot::PlotLine("Mouse X", p_data(ts), p_data(xs), length(xs), 0, 0, sizeof(float));
+                ImPlot::PlotLine("Mouse Y", p_data(ts), p_data(ys), length(ys), 0, 0, sizeof(float));
                 ImPlot::EndPlot();
             }
 
