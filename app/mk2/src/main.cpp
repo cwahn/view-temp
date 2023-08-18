@@ -29,10 +29,28 @@ constexpr const char *target_identifier = "Ars Vivendi BLE";
 
 struct BleFrame
 {
+    int spo2;
+    int heart_rate;
+    int temperature;
+    int fft[125];
+};
+
+struct BleFrameFloat
+{
     float spo2;
     float heart_rate;
     float temperature;
     float fft[125];
+
+    // BleFrameFloat(const &BleFrame frame)
+    // {
+    //     spo2 = frame.spo2 / 1000000.;
+    //     heart_rate = frame.heart_rate / 1000000.;
+    //     temperature = frame.temperature / 1000000.;
+    //     for_each([](auto x)
+    //              { return (float)(x) / 1000000.; },
+    //              frame.fft);
+    // }
 };
 
 static void
@@ -44,10 +62,10 @@ glfw_error_callback(int error, const char *description)
 ImVec4 clear_color = ImVec4(36 / 255.f, 39 / 255.f, 45 / 255.f, 1.00f);
 
 std::mutex ble_frame_mutex{};
-BleFrame ble_frame{};
+BleFrameFloat ble_frame{};
 float ble_read_duration_ms{};
 bool is_new_frame = false;
-
+bool is_ble_connected = false;
 SimpleBLE::Peripheral found_peripheral;
 
 // Main code
@@ -150,6 +168,7 @@ int main(int, char **)
                     }
 
                     std::cout << "Connected. MTU: " << p.mtu() << std::endl;
+                    is_ble_connected = true;
 
                     auto service_uuid = p.services()[0].uuid();
                     auto characteristic_uuid = p.services()[0].characteristics()[0].uuid();
@@ -169,11 +188,11 @@ int main(int, char **)
 
                                 ArrayView<float, 125> fft_view{(float *)&(p_ble_frame->fft)};
                                 for_each_with_index([](int i, auto x)
-                                                    { ble_frame.fft[i] = x >= 0 ? x : -x; },
+                                                    { ble_frame.fft[i] = (x >= 0 ? x : -x) / (128. * 1000000.); },
                                                     fft_view);
-                                ble_frame.spo2 = p_ble_frame->spo2;
-                                ble_frame.heart_rate = p_ble_frame->heart_rate;
-                                ble_frame.temperature = p_ble_frame->temperature;
+                                ble_frame.spo2 = (float)p_ble_frame->spo2 / 1000000.;
+                                ble_frame.heart_rate = (float)p_ble_frame->heart_rate / 1000000.;
+                                ble_frame.temperature = (float)p_ble_frame->temperature / 1000000.;
                                 ble_read_duration_ms = read_duration.count();
                                 is_new_frame = true;
                                 ble_frame_mutex.unlock();
@@ -187,12 +206,14 @@ int main(int, char **)
                             if (!p.is_connected())
                             {
                                 std::cout << "Peripheral disconnected with exception" << std::endl;
+                                is_ble_connected = false;
                                 adp.scan_start();
                             }
                         }
                     }
 
                     std::cout << "Peripheral disconnected" << std::endl;
+                    is_ble_connected = false;
                     adp.scan_start();
                 };
 
@@ -209,6 +230,9 @@ int main(int, char **)
     ClientConfig config{setup_task, gap_callback};
     Client client{config};
 
+    static Vector<float> freqs = from_function(125, [](int i)
+                                               { return i * 1024.f / 128.f / 2.f; });
+
     while (!glfwWindowShouldClose(window))
     {
         glfwPollEvents();
@@ -218,10 +242,7 @@ int main(int, char **)
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
 
-        constexpr int drop_n = 5;
-        static Vector<float> freqs = from_function(125 - drop_n, [](int i)
-                                                   { return (i + drop_n) * 20.f / 2.f; });
-        static BleFrame ble_frame_snapshot;
+        static BleFrameFloat ble_frame_snapshot;
         static float ble_read_duration_snapshot_ms;
 
         {
@@ -235,35 +256,44 @@ int main(int, char **)
             ble_frame_mutex.unlock();
         }
 
-        ImGui::Begin("Hello, world!"); // Create a window called "Hello, world!" and append into it.
-        ImGui::Text("Spo2: %f \nHeart rate: %f \ntemperature: %f \nBLE read duration (ms): %f",
-                    ble_frame_snapshot.spo2,
-                    ble_frame_snapshot.heart_rate,
-                    ble_frame_snapshot.temperature,
-                    ble_read_duration_ms);
+        ImGui::Begin("BLE Vital Real-time Monitor");
 
-        ImGui::Text("FFT Graph");
-
-        // static ImPlotAxisFlags flags = ImPlotAxisFlags_NoTickLabels | ImPlotAxisFlags_RangeFit;
-        static ImPlotAxisFlags flags = ImPlotAxisFlags_RangeFit;
-
-        if (ImPlot::BeginPlot("##Scrolling", ImVec2(-1, 500)))
+        if (is_ble_connected)
         {
-            ImPlot::SetupAxes(nullptr, nullptr, flags, flags);
-            ImPlot::SetupAxisLimits(ImAxis_X1, drop_n * 10, 1260, ImGuiCond_Always);
-            ImPlot::SetupAxisLimits(ImAxis_Y1, 0, 1);
-            ImPlot::SetNextFillStyle(IMPLOT_AUTO_COL, 0.5f);
-            ImPlot::PlotLine("FFT", p_data(freqs) + drop_n, p_data(ble_frame_snapshot.fft) + drop_n, 125 - drop_n, 0, 0, sizeof(float));
-            ImPlot::EndPlot();
+            ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(0, 255, 0, 255));
+            ImGui::Text("BLE connected");
+            ImGui::PopStyleColor();
+        }
+        else
+        {
+            ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(255, 0, 0, 255));
+            ImGui::Text("BLE disconnected");
+            ImGui::PopStyleColor();
         }
 
-        // ImGui::SliderFloat("float", &f, 0.0f, 1.0f);             // Edit 1 float using a slider from 0.0f to 1.0f
-        ImGui::ColorEdit4("clear color", (float *)&clear_color); // Edit 3 floats representing a color
+        ImGui::Text("\nSpo2: %f \nHeart rate: %f \ntemperature: %f \nBLE read duration (ms): %f\n ",
+                    ble_frame_snapshot.spo2 / 1000000.,
+                    ble_frame_snapshot.heart_rate / 1000000.,
+                    ble_frame_snapshot.temperature / 1000000.,
+                    ble_read_duration_ms);
 
-        // if (ImGui::Button("Button")) // Buttons return true when clicked (most widgets return true when edited/activated)
-        //     counter++;
-        // ImGui::SameLine();
-        // ImGui::Text("counter = %d", counter);
+        // ImGui::Text("Normalized FFT");
+
+        static ImPlotAxisFlags flags = ImPlotAxisFlags_RangeFit;
+
+        // auto fft_float = map([](auto x)
+        //                      { return (float)(x); },
+        //                      ble_frame_snapshot.fft)
+
+        if (ImPlot::BeginPlot("Normalized FFT", ImVec2(-1, 500)))
+        {
+            ImPlot::SetupAxes("frequency (Hz)", "normalized fft", flags, flags);
+            ImPlot::SetupAxisLimits(ImAxis_X1, 0, 124 * 1024.f / 128.f / 2.f, ImGuiCond_Always);
+            ImPlot::SetupAxisLimits(ImAxis_Y1, -1, maximum(ble_frame.fft) < 20 ? 20 : maximum(ble_frame.fft) * 1.1, ImGuiCond_Always);
+            ImPlot::SetNextFillStyle(IMPLOT_AUTO_COL, 0.5f);
+            ImPlot::PlotLine("FFT", p_data(freqs), p_data(ble_frame.fft), 125, 0, 0, sizeof(float));
+            ImPlot::EndPlot();
+        }
 
         ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / io.Framerate, io.Framerate);
         ImGui::End();

@@ -1,0 +1,9 @@
+add_executable(mk5-serial0
+    "src/main.cpp"
+)
+target_link_libraries(mk5-serial0
+    PRIVATE
+    imgui
+    impolt
+    efp
+)

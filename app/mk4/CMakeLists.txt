@@ -1,0 +1,9 @@
+add_executable(mk4
+    "src/main.cpp"
+)
+target_link_libraries(mk4
+    PRIVATE
+    imgui
+    impolt
+    efp
+)
