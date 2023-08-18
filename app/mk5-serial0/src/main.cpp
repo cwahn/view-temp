@@ -207,20 +207,20 @@ struct IntPair
 };
 
 template <typename A, typename F>
-struct Rs232PacketStream
+struct Rs232Stream
 {
 public:
-    Rs232PacketStream(const char *device, const unsigned int baudrate, const F &on_read)
+    Rs232Stream(const char *device, const unsigned int baudrate, const F &on_read)
         : device_(device), baudrate_(baudrate), on_read_(on_read)
     {
         read_period_us_ = sizeof(A) / (baudrate / 8.) * 1000000;
         // read_period_us_ = 1000000;
 
         // ! Possible stack overflow
-        thread_ = std::thread(&Rs232PacketStream::on_disconnect_, this);
+        thread_ = std::thread(&Rs232Stream::on_disconnect_, this);
     }
 
-    ~Rs232PacketStream()
+    ~Rs232Stream()
     {
         keep_alive_ = false;
         serial_.closeDevice();
@@ -312,47 +312,8 @@ int main(int argc, char const *argv[])
     auto on_read = [](const IntPair &data)
     { std::cout << "a: " << data.a << ", b: " << data.b << std::endl; };
 
-    Rs232PacketStream<IntPair, decltype(on_read)>
+    Rs232Stream<IntPair, decltype(on_read)>
         packet_stream{serial_port, baudrate, on_read};
-
-    // auto serial_task = [&]()
-    // {
-    //     serialib serial;
-    //     char res = serial.openDevice(serial_port, baudrate);
-    //     if (res != 1)
-    //     {
-    //         return res;
-    //     }
-    //     std::cout << "connected" << std::endl;
-
-    //     while (serial.isDeviceOpen())
-    //     {
-    //         uint8_t start_byte = 0;
-    //         while (start_byte != 0x55)
-    //         {
-    //             serial.readBytes(&start_byte, 1);
-    //             std::this_thread::sleep_for(std::chrono::microseconds(8000000 / baudrate));
-    //         }
-
-    //         int available_byte = serial.available();
-    //         std::cout << "available bytes" << available_byte << std::endl;
-
-    //         if (available_byte >= sizeof(IntPair))
-    //         {
-    //             uint8_t rx_buffer[1024];
-    //             int rx_size = serial.readBytes(rx_buffer, 8);
-
-    //             std::cout << "receicved " << rx_size << " bytes" << std::endl;
-
-    //             IntPair pair = *(IntPair *)(&rx_buffer);
-    //             std::cout << "a: " << pair.a << ", b: " << pair.b << std::endl;
-    //         }
-
-    //         std::this_thread::sleep_for(std::chrono::milliseconds(1000));
-    //     }
-    // };
-
-    // std::thread serial_thread{serial_task};
 
     while (true)
     {
