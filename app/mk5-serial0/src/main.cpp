@@ -3,13 +3,13 @@
 // #include <stdlib.h>
 // #include <time.h>
 
-// #include "efp.hpp"
+#include "efp.hpp"
 // #include "imgui.h"
 // #include "imgui_impl_glfw.h"
 // #include "imgui_impl_opengl3.h"
 // #include "implot.h"
 
-// using namespace efp;
+using namespace efp;
 
 // #define GL_SILENCE_DEPRECATION
 // #if defined(IMGUI_IMPL_OPENGL_ES2)
@@ -45,7 +45,6 @@
 
 //     return y;
 // }
-
 
 // // Main code
 // int main(int, char **)
@@ -192,5 +191,41 @@
 //     return 0;
 // }
 
+#include "serialib.h"
+#include <unistd.h>
+#include <stdio.h>
+#include <iostream>
+#include <sstream>
+#include <bitset>
 
-#
+struct IntPair
+{
+    int a;
+    int b;
+};
+
+int main(int argc, char const *argv[])
+{
+    const char *serial_port = "/dev/cu.usbserial-0001";
+
+    serialib serial;
+    char res = serial.openDevice(serial_port, 115200);
+    if (res != 1)
+    {
+        return res;
+    }
+
+    std::cout << "connected" << std::endl;
+    uint8_t rx_buffer[1024];
+    int rx_size = serial.readBytes(rx_buffer, 8);
+
+    std::cout << "receicved " << rx_size << " bytes" << std::endl;
+    // for_index([&](int i)
+    //           { printf("byte %d: 0x%x\n", i, rx_buffer[i]); },
+    //           rx_size);
+
+    IntPair pair = *(IntPair*)(&rx_buffer);
+    std::cout << "a: " << pair.a << ", b: " << pair.b << std::endl;
+
+    return 0;
+}

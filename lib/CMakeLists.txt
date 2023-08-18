@@ -46,6 +46,4 @@ target_include_directories(impolt
 add_subdirectory(efp)
 add_subdirectory(simple-ble/simpleble)
 add_subdirectory(ble-vital-client)
-add_subdirectory(serial)
-
-
+add_subdirectory(serialib)

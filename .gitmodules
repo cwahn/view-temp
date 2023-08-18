@@ -10,3 +10,6 @@
 [submodule "lib/simple-ble"]
 	path = lib/simple-ble
 	url = https://github.com/OpenBluetoothToolbox/SimpleBLE.git
+[submodule "lib/serialib"]
+	path = lib/serialib
+	url = https://github.com/imabot2/serialib.git

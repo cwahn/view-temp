@@ -3,7 +3,8 @@ add_executable(mk5-serial0
 )
 target_link_libraries(mk5-serial0
     PRIVATE
+    efp
     imgui
     impolt
-    efp
+    serialib
 )
