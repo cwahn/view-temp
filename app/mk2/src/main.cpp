@@ -186,13 +186,15 @@ int main(int, char **)
                                 ble_frame_mutex.lock();
                                 BleFrame *p_ble_frame = (BleFrame *)rx_data.c_str();
 
-                                ArrayView<float, 125> fft_view{(float *)&(p_ble_frame->fft)};
+                                ArrayView<int, 125> fft_view{(int *)(&(p_ble_frame->fft))};
                                 for_each_with_index([](int i, auto x)
-                                                    { ble_frame.fft[i] = (x >= 0 ? x : -x) / (128. * 1000000.); },
+                                                    { float normalized = (float)x / (float)(128 * 1000000);
+                                                    ble_frame.fft[i] = normalized >= 0? normalized: -normalized ; },
+                                                    // { ble_frame.fft[i] = (float)(x >= 0 ? x : -x) / (float)(128. * 1000000.); },
                                                     fft_view);
-                                ble_frame.spo2 = (float)p_ble_frame->spo2 / 1000000.;
-                                ble_frame.heart_rate = (float)p_ble_frame->heart_rate / 1000000.;
-                                ble_frame.temperature = (float)p_ble_frame->temperature / 1000000.;
+                                ble_frame.spo2 = (float)p_ble_frame->spo2 / (float)1000000.;
+                                ble_frame.heart_rate = (float)p_ble_frame->heart_rate / (float)1000000.;
+                                ble_frame.temperature = (float)p_ble_frame->temperature / (float)1000000.;
                                 ble_read_duration_ms = read_duration.count();
                                 is_new_frame = true;
                                 ble_frame_mutex.unlock();
