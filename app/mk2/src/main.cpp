@@ -170,6 +170,16 @@ int main(int, char **)
                     std::cout << "Connected. MTU: " << p.mtu() << std::endl;
                     is_ble_connected = true;
 
+                    for (auto &service : p.services())
+                    {
+                        std::cout << "Service: " << service.uuid() << std::endl;
+
+                        for (auto &characteristic : service.characteristics())
+                        {
+                            std::cout << "  Characteristic: " << characteristic.uuid() << std::endl;
+                        }
+                    }
+
                     auto service_uuid = p.services()[0].uuid();
                     auto characteristic_uuid = p.services()[0].characteristics()[0].uuid();
 
@@ -188,13 +198,12 @@ int main(int, char **)
 
                                 ArrayView<int, 125> fft_view{(int *)(&(p_ble_frame->fft))};
                                 for_each_with_index([](int i, auto x)
-                                                    { float normalized = (float)x / (float)(128 * 1000000);
+                                                    { float normalized = (float)x / (float)(128 * 1000);
                                                     ble_frame.fft[i] = normalized >= 0? normalized: -normalized ; },
-                                                    // { ble_frame.fft[i] = (float)(x >= 0 ? x : -x) / (float)(128. * 1000000.); },
                                                     fft_view);
-                                ble_frame.spo2 = (float)p_ble_frame->spo2 / (float)1000000.;
-                                ble_frame.heart_rate = (float)p_ble_frame->heart_rate / (float)1000000.;
-                                ble_frame.temperature = (float)p_ble_frame->temperature / (float)1000000.;
+                                ble_frame.spo2 = (float)p_ble_frame->spo2 / (float)1000.;
+                                ble_frame.heart_rate = (float)p_ble_frame->heart_rate / (float)1000.;
+                                ble_frame.temperature = (float)p_ble_frame->temperature / (float)1000.;
                                 ble_read_duration_ms = read_duration.count();
                                 is_new_frame = true;
                                 ble_frame_mutex.unlock();
@@ -274,9 +283,9 @@ int main(int, char **)
         }
 
         ImGui::Text("\nSpo2: %f \nHeart rate: %f \ntemperature: %f \nBLE read duration (ms): %f\n ",
-                    ble_frame_snapshot.spo2 / 1000000.,
-                    ble_frame_snapshot.heart_rate / 1000000.,
-                    ble_frame_snapshot.temperature / 1000000.,
+                    ble_frame_snapshot.spo2,
+                    ble_frame_snapshot.heart_rate,
+                    ble_frame_snapshot.temperature,
                     ble_read_duration_ms);
 
         // ImGui::Text("Normalized FFT");
