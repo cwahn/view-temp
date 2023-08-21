@@ -7,4 +7,5 @@ target_link_libraries(mk5-serial0
     imgui
     impolt
     serialib
+    rs232_stream
 )
