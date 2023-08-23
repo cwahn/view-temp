@@ -23,9 +23,15 @@ public:
         serial_.closeDevice();
     }
 
+    bool is_connected()
+    {
+        return is_connected_;
+    }
+
 private:
     void on_connect_()
     {
+        is_connected_ = true;
         std::cout << "connected" << std::endl;
 
         while (serial_.isDeviceOpen() && keep_alive_)
@@ -70,6 +76,7 @@ private:
 
     void on_disconnect_()
     {
+        is_connected_ = false;
         std::cout << "disconnected" << std::endl;
 
         while (!serial_.isDeviceOpen() && keep_alive_)
@@ -97,6 +104,7 @@ private:
     const F on_read_;
 
     int read_period_us_;
+    bool is_connected_;
     bool keep_alive_ = true;
     std::thread thread_;
 };

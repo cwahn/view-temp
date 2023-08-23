@@ -13,3 +13,6 @@
 [submodule "lib/serialib"]
 	path = lib/serialib
 	url = https://github.com/imabot2/serialib.git
+[submodule "lib/esp32_fft"]
+	path = lib/esp32_fft
+	url = https://github.com/fakufaku/esp32-fft.git

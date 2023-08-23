@@ -8,4 +8,5 @@ target_link_libraries(mk5-serial0
     impolt
     serialib
     rs232_stream
+    fft
 )

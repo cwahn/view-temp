@@ -1,11 +1,12 @@
-add_executable(mk3
+add_executable(mk6-plotlib-test
     "src/main.cpp"
 )
-target_link_libraries(mk3
+target_link_libraries(mk6-plotlib-test
     PRIVATE
     imgui
     implot
     efp
     simpleble::simpleble
     ble_vital_client
+    plotlib
 )

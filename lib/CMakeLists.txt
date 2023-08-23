@@ -25,26 +25,31 @@ target_link_libraries(imgui
     OpenGL::GL
     glfw)
 
-add_library(impolt STATIC)
+add_library(implot STATIC)
 set(IMPLOT_DIR ./implot)
 
-target_sources(impolt
+target_sources(implot
     PRIVATE
     ${IMPLOT_DIR}/implot.cpp
     ${IMPLOT_DIR}/implot_items.cpp
     ${IMPLOT_DIR}/implot_demo.cpp
 )
 
-target_link_libraries(impolt
+target_link_libraries(implot
     PRIVATE
     imgui)
 
-target_include_directories(impolt
+target_include_directories(implot
     PUBLIC
     ${IMPLOT_DIR}/
 )
+
+add_library(fft esp32-fft/src/fft.c)
+target_include_directories(fft PUBLIC esp32-fft/src)
+
 add_subdirectory(efp)
 add_subdirectory(simple-ble/simpleble)
 add_subdirectory(ble-vital-client)
 add_subdirectory(serialib)
 add_subdirectory(rs232-stream)
+add_subdirectory(plotlib)
