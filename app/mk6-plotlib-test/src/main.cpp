@@ -16,21 +16,24 @@ constexpr int buffer_capacity = 1250;
 constexpr float update_period_sec = 1 / 60.;
 
 // ! temp
-int audio_callback(void *outputBuffer, void *inputBuffer, unsigned int nFrames,
-                   double streamTime, RtAudioStreamStatus status, void *userData)
-{
-    int16_t *input = static_cast<int16_t *>(inputBuffer);
-    // Process the input audio data (e.g., print or analyze)
-    for (unsigned int i = 0; i < nFrames; ++i)
-    {
-        std::cout << "Sample " << i << ": " << input[i] << std::endl;
-    }
-    return 0;
-}
+// int audio_callback(void *outputBuffer, void *inputBuffer, unsigned int nFrames,
+//                    double streamTime, RtAudioStreamStatus status, void *userData)
+// {
+//     int16_t *input = static_cast<int16_t *>(inputBuffer);
+//     // Process the input audio data (e.g., print or analyze)
+//     for (unsigned int i = 0; i < nFrames; ++i)
+//     {
+//         std::cout << "Sample " << i << ": " << input[i] << std::endl;
+//     }
+//     return 0;
+// }
 
 // Main code
 int main(int, char **)
 {
+    auto audio_callback = [](int16_t x)
+    { std::cout << "Sample " << x << std::endl; };
+
     AudioStream audio_stream(44100, 1024, audio_callback);
 
     std::cout << "Capturing audio. Press Enter to stop..." << std::endl;

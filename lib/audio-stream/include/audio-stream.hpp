@@ -5,6 +5,7 @@
 #include "RtAudio.h"
 
 // todo Make output type generic
+
 class AudioStream
 {
 public:
@@ -14,6 +15,7 @@ public:
         unsigned int buffer_length,
         const F &callback)
         : buffer_length_(buffer_length)
+    //   callback_(callback)
 
     {
         // RtAudio audio;
@@ -32,6 +34,19 @@ public:
         // RtAudio::StreamOptions options;
         options_.flags = RTAUDIO_NONINTERLEAVED;
 
+        auto audio_callback_ = [&](void *outputBuffer, void *inputBuffer, unsigned int nFrames,
+                                   double streamTime, RtAudioStreamStatus status, void *userData)
+        {
+            int16_t *input = static_cast<int16_t *>(inputBuffer);
+            // Process the input audio data (e.g., print or analyze)
+            for (unsigned int i = 0; i < nFrames; ++i)
+            {
+                // std::cout << "Sample " << i << ": " << input[i] << std::endl;
+                callback(input[i]);
+            }
+            return 0;
+        };
+
         RtAudioErrorType err;
         err = audio_.openStream(
             nullptr,
@@ -39,7 +54,7 @@ public:
             RTAUDIO_SINT16,
             sample_rate_hz,
             &buffer_length_,
-            &callback,
+            efp::to_function_pointer(audio_callback_),
             nullptr,
             &options_);
 
@@ -70,10 +85,24 @@ public:
     }
 
 private:
+    // int audio_callback_(void *outputBuffer, void *inputBuffer, unsigned int nFrames,
+    //                     double streamTime, RtAudioStreamStatus status, void *userData)
+    // {
+    //     int16_t *input = static_cast<int16_t *>(inputBuffer);
+    //     // Process the input audio data (e.g., print or analyze)
+    //     for (unsigned int i = 0; i < nFrames; ++i)
+    //     {
+    //         // std::cout << "Sample " << i << ": " << input[i] << std::endl;
+    //         callback_(input[i]);
+    //     }
+    //     return 0;
+    // }
+
     RtAudio audio_;
     RtAudio::StreamParameters input_params_;
     unsigned int buffer_length_;
     RtAudio::StreamOptions options_;
+    // F &callback_;
 };
 
 #endif
