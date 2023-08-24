@@ -187,6 +187,22 @@ public:
         unlock();
     }
 
+    template <typename SeqA>
+    void push_sequence(const SeqA &as)
+    {
+        const float period_sec = 1. / sample_rate_hz_;
+        float t = now_sec() - period_sec * length(as);
+        // float delta = period_sec ;
+
+        lock();
+        for_each([&](float a)
+                 { ts_.push_back(t);
+                   as_.push_back(a);
+                   t += period_sec; },
+                 as);
+        unlock();
+    }
+
     std::string name()
     {
         return name_;

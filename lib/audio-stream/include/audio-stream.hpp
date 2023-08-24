@@ -13,7 +13,7 @@ public:
     AudioStream(
         unsigned int sample_rate_hz,
         unsigned int buffer_length,
-        const F &callback)
+        F &callback)
         : buffer_length_(buffer_length)
     //   callback_(callback)
 
@@ -38,12 +38,16 @@ public:
                                    double streamTime, RtAudioStreamStatus status, void *userData)
         {
             int16_t *input = static_cast<int16_t *>(inputBuffer);
-            // Process the input audio data (e.g., print or analyze)
-            for (unsigned int i = 0; i < nFrames; ++i)
-            {
-                // std::cout << "Sample " << i << ": " << input[i] << std::endl;
-                callback(input[i]);
-            }
+            efp::VectorView<int16_t> inputs{input, (size_t)nFrames};
+
+            // for (unsigned int i = 0; i < nFrames; ++i)
+            // {
+            //     // std::cout << "Sample " << i << ": " << input[i] << std::endl;
+            //     callback(input[i]);
+            // }
+
+            callback(inputs);
+
             return 0;
         };
 

@@ -14,153 +14,100 @@ constexpr const char *target_identifier = "Ars Vivendi BLE";
 constexpr int buffer_capacity = 1250;
 // constexpr float window_size_max_sec = 10.;
 constexpr float update_period_sec = 1 / 60.;
+constexpr int audio_sampling_rate_hz = 44100;
 
-// ! temp
-// int audio_callback(void *outputBuffer, void *inputBuffer, unsigned int nFrames,
-//                    double streamTime, RtAudioStreamStatus status, void *userData)
-// {
-//     int16_t *input = static_cast<int16_t *>(inputBuffer);
-//     // Process the input audio data (e.g., print or analyze)
-//     for (unsigned int i = 0; i < nFrames; ++i)
-//     {
-//         std::cout << "Sample " << i << ": " << input[i] << std::endl;
-//     }
-//     return 0;
-// }
+RtDataFixedRate<600> y_1{"data_1", 1 / update_period_sec};
+RtDataFixedRate<600> y_2{"data_2", 1 / update_period_sec};
+RtDataFixedRate<600> y_3{"data_3", 1 / update_period_sec};
+RtPlot3 rt_plot{"rt_plot", -1, 500, &y_1, &y_2, &y_3};
+
+RtDataDynamicRate<600> mouse_xs{"mouse xs"};
+RtDataDynamicRate<600> mouse_ys{"mouse ys"};
+RtPlot2 mouse_rt_plot{"mouse position", -1, 500, &mouse_xs, &mouse_ys};
+
+RtDataFixedRate<1024 * 10> raw_audio{"raw audio", audio_sampling_rate_hz};
+RtPlot1 audio_plot{"audio plot", -1, 500, &raw_audio};
 
 // Main code
 int main(int, char **)
 {
-    auto audio_callback = [](int16_t x)
-    { std::cout << "Sample " << x << std::endl; };
 
-    AudioStream audio_stream(44100, 1024, audio_callback);
+    auto sin_update_task = [&]()
+    {
+        int idx = 0;
 
-    std::cout << "Capturing audio. Press Enter to stop..." << std::endl;
-    std::cin.get(); // Wait for user to press Enter
+        while (true)
+        {
+            float now_sec_ = now_sec();
 
-    // RtAudio audio;
-    // RtAudio::StreamParameters inputParams;
+            y_1.push_now(3 * sin(now_sec_ / 10 * 2 * M_PI) * sin(now_sec_ / 0.5 * 2 * M_PI) + 10 * sin(now_sec_ / 15 * 2 * M_PI));
+            y_2.push_now(sin(now_sec_ / 0.6 * 2 * M_PI));
+            y_3.push_now(std::exp(sin(now_sec_ / 5. * 2. * M_PI)) + 0.5 * sin(now_sec_ / 0.04 * 2 * M_PI) * sin(now_sec_ / 0.05 * 2 * M_PI));
 
-    // if (audio.getDeviceCount() < 1)
-    // {
-    //     std::cout << "No audio devices available." << std::endl;
-    //     return 1;
-    // }
+            std::this_thread::sleep_for(std::chrono::duration<float>(update_period_sec));
+        }
+    };
+    std::thread update_thread{sin_update_task};
 
-    // // Set up input parameters
-    // inputParams.deviceId = audio.getDefaultInputDevice();
-    // inputParams.nChannels = 1; // Mono input
-    // inputParams.firstChannel = 0;
-    // unsigned int buffer_size = 256;
+    auto audio_callback = [&](VectorView<int16_t> xs)
+    {
+        // std::cout << "Sample " << x << std::endl;
+        // ! not accurate
+        raw_audio.push_sequence(xs);
+        // raw_audio.ts_.push_back(now_sec());
+        // raw_audio.as_.push_back(x);
+    };
+    AudioStream audio_stream(audio_sampling_rate_hz, 1024, audio_callback);
 
-    // RtAudio::StreamOptions options;
-    // options.flags = RTAUDIO_NONINTERLEAVED;
+    auto mouse_update_task = [&]()
+    {
+        float now_sec_ = now_sec();
+        ImVec2 mouse = ImGui::GetMousePos();
 
-    // RtAudioErrorType err;
-    // err = audio.openStream(
-    //     nullptr,
-    //     &inputParams,
-    //     RTAUDIO_SINT16,
-    //     44100,
-    //     &buffer_size,
-    //     &audio_callback,
-    //     nullptr,
-    //     &options);
+        mouse_xs.push_now(mouse.x);
+        mouse_ys.push_now(mouse.y);
 
-    // if (err)
-    // {
-    //     std::cout << "" << std::endl;
-    //     return 1;
-    // }
+        std::this_thread::sleep_for(std::chrono::duration<float>(update_period_sec));
+    };
 
-    // err = audio.startStream();
-    // if (err)
-    // {
-    //     std::cout << "" << std::endl;
-    //     return 1;
-    // }
+    auto init_task = [&](ImGuiIO &io)
+    {
+        using namespace ImGui;
+    };
 
-    // std::cout << "Capturing audio. Press Enter to stop..." << std::endl;
-    // std::cin.get(); // Wait for user to press Enter
+    auto loop_task = [&](ImGuiIO &io)
+    {
+        using namespace ImGui;
 
-    // err = audio.stopStream();
-    // if (err)
-    // {
-    //     std::cout << "" << std::endl;
-    //     return 1;
-    // }
+        mouse_update_task();
 
-    // audio.closeStream();
+        window("Real-time Generated Data", [&]()
+               { rt_plot.plot(); });
 
-    // RtDataFixedRate<600> y1{"data_1", 1 / update_period_sec};
-    // RtDataFixedRate<600> y2{"data_2", 1 / update_period_sec};
-    // RtDataFixedRate<600> y3{"data_3", 1 / update_period_sec};
-    // RtPlot3 rt_plot{"rt_plot", -1, 500, &y1, &y2, &y3};
+        window("Real-time Mouse Position", [&]()
+               {   using namespace ImGui;
+                   Text("Realtime mouse position plot");
+                   Text("Sampling rate %.2f Hz", 1. / update_period_sec);
+                   mouse_rt_plot.plot(); });
 
-    // RtDataDynamicRate<600> mouse_xs{"mouse xs"};
-    // RtDataDynamicRate<600> mouse_ys{"mouse ys"};
-    // RtPlot2 mouse_rt_plot{"mouse position", -1, 500, &mouse_xs, &mouse_ys};
+        window("Audio", [&]()
+               {
+                   using namespace ImGui;
+                   Text("Raw Audio");
+                   Text("Sampling rate %d Hz", audio_sampling_rate_hz);
+                   audio_plot.plot(); });
 
-    // auto sin_update_task = [&]()
-    // {
-    //     int idx = 0;
+        Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / io.Framerate, io.Framerate);
+    };
 
-    //     while (true)
-    //     {
-    //         float now_sec_ = now_sec();
+    run_gui(
+        1920,
+        1080,
+        "Ars Vivendi",
+        init_task,
+        loop_task);
 
-    //         y1.push_now(3 * sin(now_sec_ / 10 * 2 * M_PI) * sin(now_sec_ / 0.5 * 2 * M_PI) + 10 * sin(now_sec_ / 15 * 2 * M_PI));
-    //         y2.push_now(sin(now_sec_ / 0.6 * 2 * M_PI));
-    //         y3.push_now(std::exp(sin(now_sec_ / 5. * 2. * M_PI)) + 0.5 * sin(now_sec_ / 0.04 * 2 * M_PI) * sin(now_sec_ / 0.05 * 2 * M_PI));
-
-    //         std::this_thread::sleep_for(std::chrono::duration<float>(update_period_sec));
-    //     }
-    // };
-    // std::thread update_thread{sin_update_task};
-
-    // auto mouse_update_task = [&]()
-    // {
-    //     float now_sec_ = now_sec();
-    //     ImVec2 mouse = ImGui::GetMousePos();
-
-    //     mouse_xs.push_now(mouse.x);
-    //     mouse_ys.push_now(mouse.y);
-
-    //     std::this_thread::sleep_for(std::chrono::duration<float>(update_period_sec));
-    // };
-
-    // auto init_task = [&](ImGuiIO &io)
-    // {
-    //     using namespace ImGui;
-    // };
-
-    // auto loop_task = [&](ImGuiIO &io)
-    // {
-    //     using namespace ImGui;
-
-    //     mouse_update_task();
-
-    //     window("Real-time Generated Data", [&]()
-    //            { rt_plot.plot(); });
-
-    //     window("Real-time Mouse Position", [&]()
-    //            {   using namespace ImGui;
-    //                Text("Realtime mouse position plot");
-    //                Text("Sampling rate %.2f Hz", 1. / update_period_sec);
-    //                mouse_rt_plot.plot(); });
-
-    //     Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / io.Framerate, io.Framerate);
-    // };
-
-    // run_gui(
-    //     1920,
-    //     1080,
-    //     "Ars Vivendi",
-    //     init_task,
-    //     loop_task);
-
-    // update_thread.join();
+    update_thread.join();
 
     return 0;
 }
