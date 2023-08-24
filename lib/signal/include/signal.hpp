@@ -98,17 +98,40 @@ namespace efp
         return y;
     }
 
+    // todo lpf (f_c: 1024 Hz, delta_t: 1/20480)
+    float lpf_1024_44100(float x)
+    {
+
+        // num =
+        //     {[0.067988069774338 0.067988069774338]}
+
+        // den =
+        // { [1 - 0.864023860451324] }
+
+        // 44100 / 2048 = 21.53
+
+        static float x_1;
+        static float y_1;
+
+        float y =
+            0.067988069774338 * x + 0.067988069774338 * x_1 - ((-0.864023860451324) * y_1);
+        x_1 = x;
+        y_1 = y;
+
+        return y;
+    }
+
     // todo downsample
 
     template <int N, typename F>
-    void downsample(const F &f, int &idx, float data)
+    void downsample(const F &f, int *idx, float data)
     {
-        if (idx == 0)
+        if (*idx == 0)
         {
             f(data);
         }
-        idx++;
-        idx -= N * (idx == N);
+        (*idx)++;
+        (*idx) -= N * ((*idx) == N);
     }
 
     // for_each([&](uint16_t data)
@@ -126,7 +149,7 @@ namespace efp
     // todo decimate 2048 Hz
 
     template <int N, typename F, typename G>
-    void decimate(float data, int &idx, const F &lpf, const G &callback)
+    void decimate(float data, int *idx, const F &lpf, const G &callback)
     {
         float filtered = lpf(data);
         downsample<N>(callback, idx, filtered);
@@ -142,7 +165,7 @@ namespace efp
         // Shift phase by +pi/2
         Vector<float> fft_shifted_{};
         for_index([&](int i)
-                  { fft_shifted_.push_back(-fft_[2*i + 1])s;
+                  { fft_shifted_.push_back(-fft_[2*i + 1]);
                     fft_shifted_.push_back(fft_[2*i]); },
                   length(as));
 
@@ -155,27 +178,26 @@ namespace efp
     Vector<float> analytic_signal(const SeqA &as)
     {
         Vector<float> analytic_signal_{};
-        for_each((float o, float h) {
-            analytic_signal_.push_back(o);
-            analytic_signal_.push_back(h);
-        },
+        for_each([&](float o, float h)
+                 {analytic_signal_.push_back(o);
+                 analytic_signal_.push_back(h); },
                  as, hilbert(as));
 
         return analytic_signal_;
     }
 
     // ! partial fucntion. length should be power of two, otherwise abort
-    template <typename SeqA>
-    Vector<float> complex_abs(const SeqA &as)
-    {
-        Vector<float> abs_{};
-        for_index([&](int i)
-                  { abs_.push_back(
-                        sqrt(square(as[2 * i]) + square(as[2 * i + 1]))) },
-                  length(as) / 2);
+    // template <typename SeqA>
+    // Vector<float> complex_abs(const SeqA &as)
+    // {
+    //     Vector<float> abs_{};
+    //     for_index([&](int i)
+    //               { abs_.push_back(
+    //                     sqrt(square(as[2 * i]) + square(as[2 * i + 1]))) },
+    //               length(as) / 2);
 
-        return abs_{};
-    }
+    //     return abs_{};
+    // }
 
     // todo amplitude_envelope
 

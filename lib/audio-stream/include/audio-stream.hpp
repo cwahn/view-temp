@@ -37,8 +37,8 @@ public:
         auto audio_callback_ = [&](void *outputBuffer, void *inputBuffer, unsigned int nFrames,
                                    double streamTime, RtAudioStreamStatus status, void *userData)
         {
-            int16_t *input = static_cast<int16_t *>(inputBuffer);
-            efp::VectorView<int16_t> inputs{input, (size_t)nFrames};
+            float *input = static_cast<float *>(inputBuffer);
+            efp::VectorView<float> inputs{input, (size_t)nFrames};
 
             // for (unsigned int i = 0; i < nFrames; ++i)
             // {
@@ -55,7 +55,7 @@ public:
         err = audio_.openStream(
             nullptr,
             &input_params_,
-            RTAUDIO_SINT16,
+            RTAUDIO_FLOAT32,
             sample_rate_hz,
             &buffer_length_,
             efp::to_function_pointer(audio_callback_),

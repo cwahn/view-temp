@@ -6,6 +6,7 @@
 #include "audio-stream.hpp"
 // #include "./plotter.hpp"
 #include "plotlib.hpp"
+#include "signal.hpp"
 
 using namespace efp;
 
@@ -14,7 +15,11 @@ constexpr const char *target_identifier = "Ars Vivendi BLE";
 constexpr int buffer_capacity = 1250;
 // constexpr float window_size_max_sec = 10.;
 constexpr float update_period_sec = 1 / 60.;
-constexpr int audio_sampling_rate_hz = 44100;
+
+constexpr int audio_sampling_rate_hz = 44100; // 20480 is not supported
+constexpr int decimated_rate_hz = 2048;
+constexpr int decimation_ratio = audio_sampling_rate_hz / decimated_rate_hz;
+int audio_sample_idx = 0;
 
 RtDataFixedRate<600> y_1{"data_1", 1 / update_period_sec};
 RtDataFixedRate<600> y_2{"data_2", 1 / update_period_sec};
@@ -25,8 +30,9 @@ RtDataDynamicRate<600> mouse_xs{"mouse xs"};
 RtDataDynamicRate<600> mouse_ys{"mouse ys"};
 RtPlot2 mouse_rt_plot{"mouse position", -1, 500, &mouse_xs, &mouse_ys};
 
-RtDataFixedRate<1024 * 10> raw_audio{"raw audio", audio_sampling_rate_hz};
-RtPlot1 audio_plot{"audio plot", -1, 500, &raw_audio};
+RtDataFixedRate<1024 * 100> raw_audio{"raw audio", audio_sampling_rate_hz};
+RtDataFixedRate<1024 * 100> decimated_audio{"decimated audio", decimated_rate_hz};
+RtPlot2 audio_plot{"audio plot", -1, 500, &raw_audio, &decimated_audio};
 
 // Main code
 int main(int, char **)
@@ -49,13 +55,21 @@ int main(int, char **)
     };
     std::thread update_thread{sin_update_task};
 
-    auto audio_callback = [&](VectorView<int16_t> xs)
+    auto audio_callback = [&](VectorView<float> xs)
     {
-        // std::cout << "Sample " << x << std::endl;
-        // ! not accurate
         raw_audio.push_sequence(xs);
-        // raw_audio.ts_.push_back(now_sec());
-        // raw_audio.as_.push_back(x);
+
+        Vector<float> decimated{};
+        auto push_decimated = [&](float x)
+        {
+            decimated.push_back(x);
+        };
+
+        for_each([&](float x)
+                 { decimate<decimation_ratio>(x, &audio_sample_idx, lpf_1024_44100, push_decimated); },
+                 xs);
+
+        decimated_audio.push_sequence(decimated);
     };
     AudioStream audio_stream(audio_sampling_rate_hz, 1024, audio_callback);
 
