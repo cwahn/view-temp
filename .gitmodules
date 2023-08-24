@@ -16,3 +16,6 @@
 [submodule "lib/esp32_fft"]
 	path = lib/esp32_fft
 	url = https://github.com/fakufaku/esp32-fft.git
+[submodule "lib/rtaudio"]
+	path = lib/rtaudio
+	url = https://github.com/thestk/rtaudio.git

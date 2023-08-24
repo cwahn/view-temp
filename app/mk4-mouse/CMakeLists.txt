@@ -1,7 +1,7 @@
-add_executable(mk1
+add_executable(mk4-mouse
     "src/main.cpp"
 )
-target_link_libraries(mk1
+target_link_libraries(mk4-mouse
     PRIVATE
     imgui
     implot

@@ -4,7 +4,7 @@ add_executable(mk2
 target_link_libraries(mk2
     PRIVATE
     imgui
-    impolt
+    implot
     efp
     simpleble::simpleble
     ble_vital_client

@@ -9,4 +9,7 @@ target_link_libraries(mk6-plotlib-test
     simpleble::simpleble
     ble_vital_client
     plotlib
+    signal
+    rtaudio
+    audio-stream
 )

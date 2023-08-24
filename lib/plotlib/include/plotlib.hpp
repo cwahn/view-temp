@@ -26,12 +26,12 @@ static void glfw_error_callback(int error, const char *description)
 }
 
 template <typename F, typename G>
-static void run_window(int width,
-                       int height,
-                       const std::string &title,
-                       const F &init_task,
-                       const G &loop_task,
-                       const ImVec4 &clear_color = ImVec4(36 / 255.f, 39 / 255.f, 45 / 255.f, 1.00f))
+static void run_gui(int width,
+                    int height,
+                    const std::string &title,
+                    const F &init_task,
+                    const G &loop_task,
+                    const ImVec4 &clear_color = ImVec4(36 / 255.f, 39 / 255.f, 45 / 255.f, 1.00f))
 {
     glfwSetErrorCallback(glfw_error_callback);
     if (!glfwInit())
@@ -86,7 +86,7 @@ static void run_window(int width,
     ImGui_ImplGlfw_InitForOpenGL(window, true);
     ImGui_ImplOpenGL3_Init(glsl_version);
 
-    init_task();
+    init_task(io);
 
     while (!glfwWindowShouldClose(window))
     {
@@ -120,6 +120,15 @@ static void run_window(int width,
     glfwTerminate();
 }
 
+template <typename F>
+void window(const char *name, const F &f)
+{
+    // todo close button
+    ImGui::Begin(name);
+    f();
+    ImGui::End();
+}
+
 float now_sec()
 {
     static auto init_time = std::chrono::high_resolution_clock::now();
@@ -131,10 +140,10 @@ float now_sec()
 }
 
 template <size_t Capacity>
-class RtPlotData
+class RtDataFixedRate
 {
 public:
-    RtPlotData(std::string name, float sample_rate_hz)
+    RtDataFixedRate(std::string name, float sample_rate_hz)
         : name_(name), sample_rate_hz_(sample_rate_hz)
     {
     }
@@ -170,6 +179,19 @@ public:
         mutex_.unlock();
     }
 
+    void push_now(float value)
+    {
+        lock();
+        ts_.push_back(now_sec());
+        as_.push_back(value);
+        unlock();
+    }
+
+    std::string name()
+    {
+        return name_;
+    }
+
     float max_plot_sec()
     {
         return (float)Capacity / sample_rate_hz_;
@@ -199,11 +221,100 @@ private:
     std::mutex mutex_;
 };
 
-template <size_t Capacity1>
+template <size_t Capacity>
+class RtDataDynamicRate
+{
+public:
+    RtDataDynamicRate(std::string name)
+        : name_(name)
+    {
+    }
+
+    void setup(ImAxis y_axis, float plot_size_sec)
+    {
+        ImPlot::SetupAxis(y_axis, name_.c_str(), ImPlotAxisFlags_RangeFit);
+        size_t plot_length_ = plot_length(plot_size_sec);
+        auto view = as_view(plot_length_);
+
+        ImPlot::SetupAxisLimits(y_axis,
+                                minimum(view),
+                                maximum(view),
+                                ImGuiCond_Always);
+    }
+
+    void plot(ImAxis y_axis, float plot_size_sec)
+    {
+        ImPlot::SetAxes(ImAxis_X1, y_axis);
+        size_t plot_length_ = plot_length(plot_size_sec);
+        auto ts_view_ = ts_view(plot_length_);
+        auto as_view_ = as_view(plot_length_);
+        ImPlot::PlotLine(name_.c_str(), p_data(ts_view_), p_data(as_view_), plot_length_, 0, 0, sizeof(float));
+    }
+
+    void lock()
+    {
+        mutex_.lock();
+    }
+
+    void unlock()
+    {
+        mutex_.unlock();
+    }
+
+    void push_now(float value)
+    {
+        lock();
+        ts_.push_back(now_sec());
+        as_.push_back(value);
+        unlock();
+    }
+
+    std::string name()
+    {
+        return name_;
+    }
+
+    float max_plot_sec()
+    {
+        return now_sec() - ts_[0];
+    }
+
+    Vcb<float, Capacity> ts_;
+    Vcb<float, Capacity> as_;
+
+private:
+    size_t plot_length(float plot_size_sec)
+    {
+        float min_plot_time = now_sec() - plot_size_sec;
+        return Capacity - (find_index([&](auto x)
+                                      { return x > min_plot_time; },
+                                      ts_))
+                              .match(
+                                  [](int i)
+                                  { return i; },
+                                  [](Nothing _)
+                                  { return 0; });
+    }
+
+    VectorView<const float> ts_view(size_t plot_length)
+    {
+        return VectorView<const float>{ts_.end() - plot_length, plot_length};
+    }
+
+    VectorView<const float> as_view(size_t plot_length)
+    {
+        return VectorView<const float>{as_.end() - plot_length, plot_length};
+    }
+
+    std::string name_;
+    std::mutex mutex_;
+};
+
+template <typename Data1>
 class RtPlot1
 {
 public:
-    RtPlot1(std::string name, int width, int height, RtPlotData<Capacity1> *data)
+    RtPlot1(std::string name, int width, int height, Data1 *data)
         : name_(name), width_(width), height_(height), data1_(data)
     {
         plot_sec_ = minimum(std::vector<float>{data1_->max_plot_sec()}) / 2.;
@@ -235,7 +346,7 @@ public:
                            "%.3f sec");
     }
 
-    RtPlotData<Capacity1> *data1_;
+    Data1 *data1_;
 
 private:
     float plot_sec_;
@@ -244,16 +355,16 @@ private:
     int height_;
 };
 
-template <size_t Capacity1, size_t Capacity2>
+template <typename Data1, typename Data2>
 class RtPlot2
 {
 public:
     RtPlot2(
         std::string name,
-        int width,
-        int height,
-        RtPlotData<Capacity1> *data1,
-        RtPlotData<Capacity2> *data2)
+        float width,
+        float height,
+        Data1 *data1,
+        Data2 *data2)
         : name_(name), width_(width), height_(height), data1_(data1), data2_(data2)
     {
         plot_sec_ = minimum(std::vector<float>{
@@ -292,8 +403,8 @@ public:
                            "%.3f sec");
     }
 
-    RtPlotData<Capacity1> *data1_;
-    RtPlotData<Capacity2> *data2_;
+    Data1 *data1_;
+    Data2 *data2_;
 
 private:
     float plot_sec_;
@@ -302,7 +413,7 @@ private:
     int height_;
 };
 
-template <size_t Capacity1, size_t Capacity2, size_t Capacity3>
+template <typename Data1, typename Data2, typename Data3>
 class RtPlot3
 {
 public:
@@ -310,9 +421,9 @@ public:
         std::string name,
         int width,
         int height,
-        RtPlotData<Capacity1> *data1,
-        RtPlotData<Capacity2> *data2,
-        RtPlotData<Capacity3> *data3)
+        Data1 *data1,
+        Data2 *data2,
+        Data3 *data3)
         : name_(name), width_(width), height_(height), data1_(data1), data2_(data2), data3_(data3)
     {
         plot_sec_ = minimum(std::vector<float>{
@@ -356,9 +467,9 @@ public:
                            "%.3f sec");
     }
 
-    RtPlotData<Capacity1> *data1_;
-    RtPlotData<Capacity2> *data2_;
-    RtPlotData<Capacity1> *data3_;
+    Data1 *data1_;
+    Data2 *data2_;
+    Data1 *data3_;
 
 private:
     float plot_sec_;
@@ -366,4 +477,113 @@ private:
     int width_;
     int height_;
 };
+
+class SnapshotData
+{
+public:
+    SnapshotData(std::string x_name, std::string y_name)
+        : x_name_(x_name), y_name_(y_name)
+    {
+    }
+
+    void setup(float plot_size_sec)
+    {
+        using namespace ImPlot;
+        // ImPlot::SetupAxis(y_axis, name_.c_str(), ImPlotAxisFlags_RangeFit);
+        // size_t plot_length_ = plot_length(plot_size_sec);
+        // auto view = as_view(plot_length_);
+
+        // ImPlot::SetupAxisLimits(y_axis,
+        //                         minimum(view),
+        //                         maximum(view),
+        //                         ImGuiCond_Always);
+
+        ImPlotAxisFlags flags = ImPlotAxisFlags_RangeFit;
+        SetupAxes(x_name_.c_str(), y_name_.c_str(), flags, flags);
+        SetupAxisLimits(ImAxis_X1, minimum(xs_), maximum(xs_), ImGuiCond_Always);
+        SetupAxisLimits(ImAxis_Y1, minimum(ys_), maximum(ys_), ImGuiCond_Always);
+    }
+
+    void plot(ImAxis y_axis)
+    {
+        using namespace ImPlot;
+        // ImPlot::SetAxes(ImAxis_X1, y_axis);
+        // size_t plot_length_ = plot_length(plot_size_sec);
+        // auto ts_view_ = ts_view(plot_length_);
+        // auto as_view_ = as_view(plot_length_);
+        // ImPlot::PlotLine(name_.c_str(), p_data(ts_view_), p_data(as_view_), plot_length_, 0, 0, sizeof(float));
+
+        PlotLine(y_name_.c_str(), p_data(xs_), p_data(ys_), length(ys_), 0, 0, sizeof(float));
+    }
+
+    void lock()
+    {
+        mutex_.lock();
+    }
+
+    void unlock()
+    {
+        mutex_.unlock();
+    }
+
+    std::string name()
+    {
+        return y_name_;
+    }
+
+    std::vector<float> xs_;
+    std::vector<float> ys_;
+
+private:
+    std::string x_name_;
+    std::string y_name_;
+    std::mutex mutex_;
+};
+
+class SnapshotPlot
+{
+public:
+    SnapshotPlot(
+        std::string name,
+        int width,
+        int height,
+        SnapshotData *data)
+        : name_(name), width_(width), height_(height), data_(data)
+    {
+    }
+
+    void plot()
+    {
+        if (ImPlot::BeginPlot(name_.c_str(), ImVec2(width_, height_)))
+        {
+            ImPlot::SetupAxis(ImAxis_X1, "time(sec)", ImPlotAxisFlags_RangeFit);
+            auto now_sec_ = now_sec();
+            ImPlot::SetupAxisLimits(ImAxis_X1, minimum(data_->xs_), maximum(data_->ys_), ImGuiCond_Always);
+
+            data_->lock();
+            data_->setup(ImAxis_Y1);
+
+            ImPlot::SetNextFillStyle(IMPLOT_AUTO_COL, 0.5f);
+
+            data_->plot(ImAxis_Y1);
+            data_->unlock();
+
+            ImPlot::EndPlot();
+        }
+
+        // ImGui::SliderFloat("plotting window (sec)",
+        //                    &plot_sec_,
+        //                    0.,
+        //                    minimum(std::vector<float>{data1_->max_plot_sec(), data2_->max_plot_sec(), data3_->max_plot_sec()}),
+        //                    "%.3f sec");
+    }
+
+    SnapshotData *data_;
+
+private:
+    std::string name_;
+    int width_;
+    int height_;
+};
+
 #endif
