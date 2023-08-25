@@ -586,12 +586,6 @@ public:
 
             ImPlot::EndPlot();
         }
-
-        // ImGui::SliderFloat("plotting window (sec)",
-        //                    &plot_sec_,
-        //                    0.,
-        //                    minimum(std::vector<float>{data1_->max_plot_sec(), data2_->max_plot_sec(), data3_->max_plot_sec()}),
-        //                    "%.3f sec");
     }
 
     SnapshotData *data_;
@@ -600,6 +594,188 @@ private:
     std::string name_;
     int width_;
     int height_;
+};
+
+template <size_t capacity>
+class SpectrogramData
+{
+public:
+    SpectrogramData(std::string x_name, std::string y_name)
+        : x_name_(x_name), y_name_(y_name)
+    {
+    }
+
+    void setup(float plot_size_sec)
+    {
+        using namespace ImPlot;
+
+        // ImPlotAxisFlags flags = ImPlotAxisFlags_RangeFit;
+        // SetupAxes(x_name_.c_str(), y_name_.c_str(), flags, flags);
+        // SetupAxisLimits(ImAxis_X1, minimum(xs_), maximum(xs_), ImGuiCond_Always);
+        // SetupAxisLimits(ImAxis_Y1, minimum(ys_), maximum(ys_), ImGuiCond_Always);
+
+        SetupAxes(NULL, NULL, ImPlotAxisFlags_NoTickLabels, ImPlotAxisFlags_Lock);
+        SetupAxisLimits(ImAxis_X1, maximum(ts_) - plot_size_sec, maximum(ts_), ImGuiCond_Always);
+        SetupAxisLimits(ImAxis_Y1, 0, 1024, ImGuiCond_Always);
+        SetupAxisFormat(ImAxis_X1, "%f sec");
+        SetupAxisFormat(ImAxis_Y1, "%f Hz");
+    }
+
+    void plot(float plot_size_sec)
+    {
+        using namespace ImGui;
+        using namespace ImPlot;
+
+        // PlotLine(y_name_.c_str(), p_data(xs_), p_data(ys_), length(ys_), 0, 0, sizeof(float));
+        PlotHeatmap(
+            y_name_.c_str(),
+            p_data(ass_),
+            plot_length(plot_size_sec),
+            sample_length_,
+            minimum(ass_),
+            // 0,
+            maximum(ass_),
+            // 1024,
+            NULL,
+            // todo ts_ last
+            {maximum(ts_) - plot_size_sec, 0},
+            {maximum(ts_), 1024},
+            ImPlotHeatmapFlags_ColMajor);
+
+        Text("rows | plot_length: %d", plot_length(plot_size_sec));
+        Text("cols | sample_length: %d", sample_length_);
+        Text("scale_min | minimum(ass_): %f", minimum(ass_));
+        Text("scale_max | maximum(ass_): %f", maximum(ass_));
+        Text("bound_min | {maximum(ts_) - plot_size_sec, 0}: %f, %f", maximum(ts_) - plot_size_sec, 0);
+        Text("bound_max | {maximum(ts_), maximum(ass_)}: %f, %f", maximum(ts_), maximum(ass_));
+    }
+
+    void lock()
+    {
+        mutex_.lock();
+    }
+
+    void unlock()
+    {
+        mutex_.unlock();
+    }
+
+    std::string name()
+    {
+        return y_name_;
+    }
+
+    template <typename SeqA>
+    void push_sequence(const SeqA &as)
+    {
+        int as_length = length(as);
+        lock();
+        if (as_length != sample_length_)
+        {
+            // todo If length is different clear buffer
+            sample_length_ = as_length;
+        }
+        for_each([&](auto x)
+                 { ass_.push_back(x); },
+                 as);
+        ts_.push_back(now_sec());
+        unlock();
+    }
+
+    float max_plot_sec()
+    {
+        return now_sec() - minimum(ts_);
+    }
+
+    Vcb<float, capacity> ass_;
+    Vcb<float, capacity> ts_;
+
+private:
+    int max_plot_length()
+    {
+        return capacity / sample_length_;
+    }
+
+    int plot_length(float plot_size_sec)
+    {
+        // float min_plot_time = now_sec() - plot_size_sec;
+        // return Capacity - (find_index([&](auto x)
+        //                               { return x > min_plot_time; },
+        //                               ts_))
+        //                       .match(
+        //                           [](int i)
+        //                           { return i; },
+        //                           [](Nothing _)
+        //                           { return 0; });
+
+        float min_plot_time_sec = now_sec() - plot_size_sec;
+        int min_sample_index = find_index([&](auto x)
+                                          { return x > min_plot_time_sec; },
+                                          ts_)
+                                   .match(
+                                       [](int i)
+                                       { return i; },
+                                       [](Nothing _)
+                                       { return 0; });
+
+        // return max_plot_length() - min_sample_index;
+        return 100;
+    }
+
+    std::string x_name_;
+    std::string y_name_;
+    int sample_length_;
+    std::mutex mutex_;
+};
+
+template <typename D>
+class SpectrogramPlot
+{
+public:
+    SpectrogramPlot(
+        std::string name,
+        int width,
+        int height,
+        D *data)
+        : name_(name), width_(width), height_(height), data_(data)
+    {
+    }
+
+    void plot()
+    {
+        if (ImPlot::BeginPlot(name_.c_str(), ImVec2(width_, height_)))
+        {
+            // ImPlot::SetupAxis(ImAxis_X1, "time(sec)", ImPlotAxisFlags_RangeFit);
+            // auto now_sec_ = now_sec();
+            // ImPlot::SetupAxisLimits(ImAxis_X1, minimum(data_->xs_), maximum(data_->ys_), ImGuiCond_Always);
+
+            data_->lock();
+            data_->setup(plot_sec_);
+
+            ImPlot::SetNextFillStyle(IMPLOT_AUTO_COL, 0.5f);
+
+            data_->plot(plot_sec_);
+            data_->unlock();
+
+            ImPlot::EndPlot();
+        }
+
+        ImGui::SliderFloat("plotting window (sec)",
+                           &plot_sec_,
+                           0.,
+                           data_->max_plot_sec(),
+                           "%.3f sec");
+    }
+
+    D *data_;
+
+private:
+    std::string name_;
+    int width_;
+    int height_;
+
+    float plot_sec_;
+    int sample_length_;
 };
 
 #endif

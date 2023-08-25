@@ -10,6 +10,32 @@ extern "C"
 
 namespace efp
 {
+    template <typename F, typename G>
+    void periodic_loop(const F &f, const G &period)
+    {
+        using namespace std::chrono;
+
+        while (true)
+        {
+            auto start_time = high_resolution_clock::now();
+            f();
+            auto end_time = high_resolution_clock::now();
+            auto elapsed_time = duration_cast<milliseconds>(end_time - start_time);
+
+            auto period_ = period();
+            if (elapsed_time < period_)
+                std::this_thread::sleep_for(period_ - elapsed_time);
+        }
+    }
+
+    template <typename SeqA>
+    Vector<Element_t<SeqA>> normalize_n(const SeqA &as)
+    {
+        return map([&](auto x)
+                   { return x / (Element_t<SeqA>)length(as); },
+                   as);
+    }
+
     // ! partial fucntion. length should be power of two, otherwise abort
     template <typename SeqA>
     Vector<float> fft_complex(SeqA &as)
@@ -82,6 +108,11 @@ namespace efp
         fft_destroy(fft_config);
 
         return result;
+    }
+
+    size_t fft_length(int n)
+    {
+        return 1 << n;
     }
 
     // todo lpf (f_c: 1024 Hz, delta_t: 1/20480)
@@ -187,17 +218,17 @@ namespace efp
     }
 
     // ! partial fucntion. length should be power of two, otherwise abort
-    // template <typename SeqA>
-    // Vector<float> complex_abs(const SeqA &as)
-    // {
-    //     Vector<float> abs_{};
-    //     for_index([&](int i)
-    //               { abs_.push_back(
-    //                     sqrt(square(as[2 * i]) + square(as[2 * i + 1]))) },
-    //               length(as) / 2);
+    template <typename SeqA>
+    Vector<float> complex_abs(const SeqA &as)
+    {
+        Vector<float> abs_{};
+        for_index([&](int i)
+                  { abs_.push_back(
+                        sqrt(square(as[2 * i]) + square(as[2 * i + 1]))); },
+                  length(as) / 2);
 
-    //     return abs_{};
-    // }
+        return abs_;
+    }
 
     // todo amplitude_envelope
 
