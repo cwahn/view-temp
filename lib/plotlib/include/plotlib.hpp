@@ -596,7 +596,7 @@ private:
     int height_;
 };
 
-template <size_t capacity>
+template <size_t capacity, size_t max_sample_length>
 class SpectrogramData
 {
 public:
@@ -609,14 +609,15 @@ public:
     {
         using namespace ImPlot;
 
-        // ImPlotAxisFlags flags = ImPlotAxisFlags_RangeFit;
-        // SetupAxes(x_name_.c_str(), y_name_.c_str(), flags, flags);
-        // SetupAxisLimits(ImAxis_X1, minimum(xs_), maximum(xs_), ImGuiCond_Always);
-        // SetupAxisLimits(ImAxis_Y1, minimum(ys_), maximum(ys_), ImGuiCond_Always);
+        auto plot_length_ = plot_length(plot_size_sec);
+        auto ass_view_ = ass_view(plot_length_);
+        auto ts_view_ = ts_view(plot_length_);
 
-        SetupAxes(NULL, NULL, ImPlotAxisFlags_NoTickLabels, ImPlotAxisFlags_Lock);
-        SetupAxisLimits(ImAxis_X1, maximum(ts_) - plot_size_sec, maximum(ts_), ImGuiCond_Always);
-        SetupAxisLimits(ImAxis_Y1, 0, 1024, ImGuiCond_Always);
+        SetupAxes(NULL, NULL, ImPlotAxisFlags_NoTickLabels);
+
+        SetupAxisLimits(ImAxis_X1, ts_view_[0], ts_view_[plot_length_ - 1], ImGuiCond_Always);
+        SetupAxisLimits(ImAxis_Y1, 0, 22050, ImGuiCond_Always);
+
         SetupAxisFormat(ImAxis_X1, "%f sec");
         SetupAxisFormat(ImAxis_Y1, "%f Hz");
     }
@@ -626,28 +627,36 @@ public:
         using namespace ImGui;
         using namespace ImPlot;
 
-        // PlotLine(y_name_.c_str(), p_data(xs_), p_data(ys_), length(ys_), 0, 0, sizeof(float));
+        auto plot_length_ = plot_length(plot_size_sec);
+        auto ass_view_ = ass_view(plot_length_);
+        auto ts_view_ = ts_view(plot_length_);
+
+        auto lims_ = ImPlot::GetPlotLimits();
+
+        // ! Need fix
         PlotHeatmap(
             y_name_.c_str(),
-            p_data(ass_),
-            plot_length(plot_size_sec),
-            sample_length_,
-            minimum(ass_),
-            // 0,
-            maximum(ass_),
-            // 1024,
-            NULL,
-            // todo ts_ last
-            {maximum(ts_) - plot_size_sec, 0},
-            {maximum(ts_), 1024},
-            ImPlotHeatmapFlags_ColMajor);
+            p_data(ass_view_),
+            sample_length_,     // rows on display?? yes
+            plot_length_,       // rows on display? yes
+            minimum(ass_view_), // color map min?
+            maximum(ass_view_), // color map max?
+            NULL,               // fmt
+            ImPlotPoint{
+                ts_view_[0],
+                0}, // coordinate of view in unit of limits
+            ImPlotPoint{
+                ts_view_[plot_length_ - 1],
+                22050},                 // coordinate of view in unit of limits
+            ImPlotHeatmapFlags_ColMajor // col-major = col-contiguous
+        );
 
-        Text("rows | plot_length: %d", plot_length(plot_size_sec));
-        Text("cols | sample_length: %d", sample_length_);
+        Text("rows | plot_length_: %d", plot_length_);
+        Text("cols | sample_length_: %d", sample_length_);
         Text("scale_min | minimum(ass_): %f", minimum(ass_));
         Text("scale_max | maximum(ass_): %f", maximum(ass_));
-        Text("bound_min | {maximum(ts_) - plot_size_sec, 0}: %f, %f", maximum(ts_) - plot_size_sec, 0);
-        Text("bound_max | {maximum(ts_), maximum(ass_)}: %f, %f", maximum(ts_), maximum(ass_));
+        Text("bound_min | {minimum(ts_view_), 0}: %f, %f", minimum(ts_view_), 0.);
+        Text("bound_max | {maximum(ts_view_), 20000.}: %f, %f", maximum(ts_view_), 20000.);
     }
 
     void lock()
@@ -675,9 +684,12 @@ public:
             // todo If length is different clear buffer
             sample_length_ = as_length;
         }
-        for_each([&](auto x)
-                 { ass_.push_back(x); },
-                 as);
+
+        // ! Inverse insert
+        for_index([&](int i)
+                  { ass_.push_back(as[as_length - i - 1]); },
+                  sample_length_);
+
         ts_.push_back(now_sec());
         unlock();
     }
@@ -687,7 +699,7 @@ public:
         return now_sec() - minimum(ts_);
     }
 
-    Vcb<float, capacity> ass_;
+    Vcb<float, capacity * max_sample_length> ass_;
     Vcb<float, capacity> ts_;
 
 private:
@@ -698,16 +710,7 @@ private:
 
     int plot_length(float plot_size_sec)
     {
-        // float min_plot_time = now_sec() - plot_size_sec;
-        // return Capacity - (find_index([&](auto x)
-        //                               { return x > min_plot_time; },
-        //                               ts_))
-        //                       .match(
-        //                           [](int i)
-        //                           { return i; },
-        //                           [](Nothing _)
-        //                           { return 0; });
-
+        // ! need to be fixed
         float min_plot_time_sec = now_sec() - plot_size_sec;
         int min_sample_index = find_index([&](auto x)
                                           { return x > min_plot_time_sec; },
@@ -718,8 +721,18 @@ private:
                                        [](Nothing _)
                                        { return 0; });
 
-        // return max_plot_length() - min_sample_index;
-        return 100;
+        return capacity - min_sample_index;
+    }
+
+    VectorView<const float> ts_view(size_t plot_length)
+    {
+        return VectorView<const float>{ts_.end() - plot_length, plot_length};
+    }
+
+    VectorView<const float> ass_view(size_t plot_length)
+    {
+        size_t point_num = plot_length * sample_length_;
+        return VectorView<const float>{ass_.end() - point_num, point_num};
     }
 
     std::string x_name_;
@@ -743,11 +756,12 @@ public:
 
     void plot()
     {
-        if (ImPlot::BeginPlot(name_.c_str(), ImVec2(width_, height_)))
+        using namespace ImGui;
+        using namespace ImPlot;
+
+        if (BeginPlot(name_.c_str(), ImVec2(width_, height_)))
         {
-            // ImPlot::SetupAxis(ImAxis_X1, "time(sec)", ImPlotAxisFlags_RangeFit);
-            // auto now_sec_ = now_sec();
-            // ImPlot::SetupAxisLimits(ImAxis_X1, minimum(data_->xs_), maximum(data_->ys_), ImGuiCond_Always);
+            PushColormap(ImPlotColormap_Plasma);
 
             data_->lock();
             data_->setup(plot_sec_);
@@ -756,15 +770,15 @@ public:
 
             data_->plot(plot_sec_);
             data_->unlock();
+            PopColormap();
 
-            ImPlot::EndPlot();
+            EndPlot();
         }
-
-        ImGui::SliderFloat("plotting window (sec)",
-                           &plot_sec_,
-                           0.,
-                           data_->max_plot_sec(),
-                           "%.3f sec");
+        SliderFloat("plotting window (sec)",
+                    &plot_sec_,
+                    0.,
+                    data_->max_plot_sec(),
+                    "%.3f sec");
     }
 
     D *data_;

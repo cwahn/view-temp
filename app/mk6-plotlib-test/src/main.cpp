@@ -17,7 +17,7 @@ constexpr int buffer_capacity = 1250;
 constexpr float update_period_sec = 1 / 60.;
 
 constexpr int audio_sampling_rate_hz = 44100; // 20480 is not supported
-constexpr int decimated_rate_hz = 2048;
+constexpr int decimated_rate_hz = 44100;
 constexpr int decimation_ratio = audio_sampling_rate_hz / decimated_rate_hz;
 constexpr int min_fft_n = 3;
 constexpr int max_fft_n = 10;
@@ -45,7 +45,7 @@ RtPlot2 audio_plot{"audio plot", -1, 500, &raw_audio, &decimated_audio};
 SnapshotData raw_fft{"frequency (hz)", "fft"};
 SnapshotPlot raw_fft_plot{"audio FFT plot", -1, 500, &raw_fft};
 
-SpectrogramData<128 * 100> audio_fft_spectrogram{"frequency (Hz)", "time (sec)"};
+SpectrogramData<1024, 1 << max_fft_n> audio_fft_spectrogram{"frequency (Hz)", "time (sec)"};
 SpectrogramPlot audio_fft_spectrogram_plot{"audio FFT spectrogram plot", -1, 500, &audio_fft_spectrogram};
 
 // Main code
@@ -80,7 +80,9 @@ int main(int, char **)
         };
 
         for_each([&](float x)
-                 { decimate<decimation_ratio>(x, &audio_sample_idx, lpf_1024_44100, push_decimated); },
+                 { 
+                    // decimate<decimation_ratio>(x, &audio_sample_idx, lpf_1024_44100, push_decimated); 
+                    decimate<decimation_ratio>(x, &audio_sample_idx, id<float>, push_decimated); },
                  xs);
         decimated_audio.push_sequence(decimated);
     };
@@ -137,6 +139,7 @@ int main(int, char **)
     auto loop_task = [&](ImGuiIO &io)
     {
         using namespace ImGui;
+        using namespace ImPlot;
 
         mouse_update_task();
 
@@ -144,28 +147,25 @@ int main(int, char **)
                { rt_plot.plot(); });
 
         window("Real-time Mouse Position", [&]()
-               {   using namespace ImGui;
-                   Text("Realtime mouse position plot");
+               {   Text("Realtime mouse position plot");
                    Text("Sampling rate %.2f Hz", 1. / update_period_sec);
                    mouse_rt_plot.plot(); });
 
         window("Audio", [&]()
-               {   using namespace ImGui;
-                   Text("Raw Audio");
+               {   Text("Raw Audio");
                    Text("Sampling rate %d Hz", audio_sampling_rate_hz);
                    audio_plot.plot(); });
 
         window("FFT & MFCC", [&]()
-               {    using namespace ImGui;
-                    raw_fft_plot.plot();
+               {    raw_fft_plot.plot();
                     SliderInt("FFT N", &fft_n, min_fft_n, max_fft_n);
                     SliderFloat("FFT stride ratio", &fft_stride_ratio, 0, 1); });
 
         window("FFT Spectrogram", [&]()
-               { using namespace ImGui;
-               audio_fft_spectrogram_plot.plot(); });
+               { audio_fft_spectrogram_plot.plot(); });
 
-        Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / io.Framerate, io.Framerate);
+        ShowColormapSelector("colormap");
+        Text("application average %.3f ms/frame (%.1f FPS)", 1000.0f / io.Framerate, io.Framerate);
     };
 
     run_gui(

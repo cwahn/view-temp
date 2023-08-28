@@ -27,6 +27,8 @@ using namespace efp;
 
 constexpr const char *target_identifier = "Ars Vivendi BLE";
 
+Vcb<double, 10000> fft_sums{};
+
 struct BleFrame
 {
     int spo2;
@@ -305,6 +307,18 @@ int main(int, char **)
             ImPlot::PlotLine("FFT", p_data(freqs), p_data(ble_frame.fft), 125, 0, 0, sizeof(float));
             ImPlot::EndPlot();
         }
+
+        double fft_sum = 0;
+        for_each([&](auto x)
+                 { fft_sum += x; },
+                 ble_frame.fft);
+
+        ImGui::Text("Instantaneus average value: %0.6f", fft_sum / 125.);
+
+        static double cum_avg = 0;
+        cum_avg = 0.999 * cum_avg + 0.001 * (fft_sum / 125.);
+        
+        ImGui::Text("average value of 1000 frame: %0.6f", cum_avg);
 
         ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / io.Framerate, io.Framerate);
         ImGui::End();
