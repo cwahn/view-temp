@@ -13,16 +13,16 @@ using namespace efp;
 constexpr const char *target_identifier = "Ars Vivendi BLE";
 
 constexpr int buffer_capacity = 1250;
-// constexpr float window_size_max_sec = 10.;
-constexpr float update_period_sec = 1 / 60.;
+// constexpr double window_size_max_sec = 10.;
+constexpr double update_period_sec = 1 / 60.;
 
 constexpr int audio_sampling_rate_hz = 44100; // 20480 is not supported
 constexpr int decimated_rate_hz = 44100;
 constexpr int decimation_ratio = audio_sampling_rate_hz / decimated_rate_hz;
 constexpr int min_fft_n = 3;
 constexpr int max_fft_n = 10;
-constexpr float min_fft_stride_ratio = 0;
-constexpr float max_fft_stride_ratio = 1;
+constexpr double min_fft_stride_ratio = 0;
+constexpr double max_fft_stride_ratio = 1;
 
 int audio_sample_idx = 0;
 int fft_n = 8;
@@ -51,24 +51,6 @@ SpectrogramPlot audio_fft_spectrogram_plot{"audio FFT spectrogram plot", -1, 500
 // Main code
 int main(int, char **)
 {
-
-    auto sin_update_task = [&]()
-    {
-        int idx = 0;
-
-        while (true)
-        {
-            float now_sec_ = now_sec();
-
-            y_1.push_now(3 * sin(now_sec_ / 10 * 2 * M_PI) * sin(now_sec_ / 0.5 * 2 * M_PI) + 10 * sin(now_sec_ / 15 * 2 * M_PI));
-            y_2.push_now(sin(now_sec_ / 0.6 * 2 * M_PI));
-            y_3.push_now(std::exp(sin(now_sec_ / 5. * 2. * M_PI)) + 0.5 * sin(now_sec_ / 0.04 * 2 * M_PI) * sin(now_sec_ / 0.05 * 2 * M_PI));
-
-            std::this_thread::sleep_for(std::chrono::duration<float>(update_period_sec));
-        }
-    };
-    std::thread update_thread{sin_update_task};
-
     auto audio_callback = [&](VectorView<float> xs)
     {
         raw_audio.push_sequence(xs);
@@ -97,20 +79,24 @@ int main(int, char **)
                 decimated_audio.lock();
                 auto &as = decimated_audio.as_;
                 size_t fft_length_ = fft_length(fft_n);
-                VectorView<const float> fft_view{p_data(as) + length(as) - fft_length_, fft_length_};
+                VectorView<const double> fft_view{p_data(as) + length(as) - fft_length_, fft_length_};
                 decimated_audio.unlock();
 
-                auto detrended_input = normalize_n(detrend<float>(remove_dc<float>(fft_view)));
+                auto detrended_input = normalize_n<float>(detrend<double>(remove_dc<double>(fft_view)));
                 auto fft_result = complex_abs(fft_real(detrended_input));
 
                 // todo internal mutex
                 raw_fft.lock();
                 raw_fft.xs_ = from_function(fft_length_ / 2, [&](int i)
-                                            { return (float)i * decimated_rate_hz / (float)(fft_length_); });
-                raw_fft.ys_ = fft_result;
+                                            { return (double)i * decimated_rate_hz / (double)(fft_length_); });
+                raw_fft.ys_ = map([](auto x)
+                                  { return (double)x; },
+                                  fft_result);
                 raw_fft.unlock();
 
-                audio_fft_spectrogram.push_sequence(fft_result);
+                audio_fft_spectrogram.push_sequence(map([](auto x)
+                                                        { return std::log10(x); },
+                                                        fft_result));
             },
             [&]()
             {
@@ -119,17 +105,6 @@ int main(int, char **)
             });
     };
     std::thread fft_thread{fft_task};
-
-    auto mouse_update_task = [&]()
-    {
-        float now_sec_ = now_sec();
-        ImVec2 mouse = ImGui::GetMousePos();
-
-        mouse_xs.push_now(mouse.x);
-        mouse_ys.push_now(mouse.y);
-
-        std::this_thread::sleep_for(std::chrono::duration<float>(update_period_sec));
-    };
 
     auto init_task = [&](ImGuiIO &io)
     {
@@ -140,16 +115,6 @@ int main(int, char **)
     {
         using namespace ImGui;
         using namespace ImPlot;
-
-        mouse_update_task();
-
-        window("Real-time Generated Data", [&]()
-               { rt_plot.plot(); });
-
-        window("Real-time Mouse Position", [&]()
-               {   Text("Realtime mouse position plot");
-                   Text("Sampling rate %.2f Hz", 1. / update_period_sec);
-                   mouse_rt_plot.plot(); });
 
         window("Audio", [&]()
                {   Text("Raw Audio");
@@ -164,7 +129,11 @@ int main(int, char **)
         window("FFT Spectrogram", [&]()
                { audio_fft_spectrogram_plot.plot(); });
 
-        ShowColormapSelector("colormap");
+        ImGui::ShowDemoWindow();
+
+        ImGui::ShowStyleSelector("GUI style");
+        ImPlot::ShowStyleSelector("plot style");
+        ShowColormapSelector("plot colormap");
         Text("application average %.3f ms/frame (%.1f FPS)", 1000.0f / io.Framerate, io.Framerate);
     };
 
@@ -175,7 +144,7 @@ int main(int, char **)
         init_task,
         loop_task);
 
-    update_thread.join();
+    fft_thread.join();
 
     return 0;
 }

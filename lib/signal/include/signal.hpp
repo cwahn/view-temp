@@ -2,6 +2,7 @@
 #define SIGNAL_HPP_
 
 #include "efp.hpp"
+#include "./fixed_point.hpp"
 
 extern "C"
 {
@@ -28,11 +29,11 @@ namespace efp
         }
     }
 
-    template <typename SeqA>
-    Vector<Element_t<SeqA>> normalize_n(const SeqA &as)
+    template <typename A, typename SeqA>
+    Vector<A> normalize_n(const SeqA &as)
     {
         return map([&](auto x)
-                   { return x / (Element_t<SeqA>)length(as); },
+                   { return (A)(x / (Element_t<SeqA>)length(as)); },
                    as);
     }
 
