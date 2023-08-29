@@ -129,12 +129,14 @@ int main(int, char **)
         window("FFT Spectrogram", [&]()
                { audio_fft_spectrogram_plot.plot(); });
 
-        ImGui::ShowDemoWindow();
+        window("Configuration", [&]()
+               {
+                   ImGui::ShowStyleSelector("GUI style");
+                   ImPlot::ShowStyleSelector("plot style");
+                   ShowColormapSelector("plot colormap");
+                   Text("application average %.3f ms/frame (%.1f FPS)", 1000.0f / io.Framerate, io.Framerate); });
 
-        ImGui::ShowStyleSelector("GUI style");
-        ImPlot::ShowStyleSelector("plot style");
-        ShowColormapSelector("plot colormap");
-        Text("application average %.3f ms/frame (%.1f FPS)", 1000.0f / io.Framerate, io.Framerate);
+        ImGui::ShowDemoWindow();
     };
 
     run_gui(

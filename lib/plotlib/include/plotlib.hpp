@@ -194,7 +194,26 @@ static void run_gui(int width,
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
 
+#ifdef IMGUI_HAS_VIEWPORT
+        ImGuiViewport *viewport = ImGui::GetMainViewport();
+        ImGui::SetNextWindowPos(viewport->GetWorkPos());
+        ImGui::SetNextWindowSize(viewport->GetWorkSize());
+        ImGui::SetNextWindowViewport(viewport->ID);
+#else
+        ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
+        ImGui::SetNextWindowSize(ImGui::GetIO().DisplaySize);
+#endif
+        static bool open_main = true;
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
+        ImGui::Begin(" ", &open_main,
+                     ImGuiWindowFlags_NoDecoration |
+                         ImGuiWindowFlags_NoResize |
+                         ImGuiWindowFlags_NoBringToFrontOnFocus);
+        ImGui::PopStyleVar(1);
+
         loop_task(io);
+
+        ImGui::End();
 
         ImGui::Render();
 
