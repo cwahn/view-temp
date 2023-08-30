@@ -139,6 +139,7 @@ static void run_gui(int width,
                     const ImVec4 &clear_color = ImVec4(0.f / 255.f, 0.f / 255.f, 0.f / 255.f, 1.00f))
 {
     using namespace ImGui;
+    using namespace ImPlot;
 
     glfwSetErrorCallback(glfw_error_callback);
     if (!glfwInit())
@@ -188,7 +189,6 @@ static void run_gui(int width,
     io.FontDefault = io.Fonts->Fonts[0];
 
     // Setup Dear ImGui style
-    // ImGui::StyleColorsDark();
     set_theme();
 
     // Setup Platform/Renderer backends
@@ -205,6 +205,8 @@ static void run_gui(int width,
 
     while (!glfwWindowShouldClose(window))
     {
+        using namespace ImGui;
+
         glfwPollEvents();
 
         // Start the Dear ImGui frame
@@ -212,29 +214,21 @@ static void run_gui(int width,
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
 
+        // ? Do I need dock space?
         ImGuiID dockspace = ImGui::DockSpaceOverViewport();
 
-        // ImGui::SetNextWindowDockID(dockspace);
-
-        // #ifdef IMGUI_HAS_VIEWPORT
-        // ImGuiViewport *viewport = ImGui::GetMainViewport();
-        // ImGui::SetNextWindowPos(use_work_area ? viewport->WorkPos : viewport->Pos);
-        // ImGui::SetNextWindowSize(use_work_area ? viewport->WorkSize : viewport->Size);
-        // ImGui::SetNextWindowViewport(viewport->ID);
-
         static bool open_main = true;
-        // ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
         ImGui::Begin("main", &open_main, fullscreen_window_flag);
 
-        ImGui::Text("Hello");
-        // ImGui::ShowStyleSelector("GUI style");
-        // ImPlot::ShowStyleSelector("plot style");
-        // ImPlot::ShowColormapSelector("plot colormap");
-        // Text("application average %.3e ms/frame (%.1f FPS)", 1000.0f / io.Framerate, io.Framerate);
+        const std::string main_placeholder_text = "Ars Vivendi";
+        auto place_holder_text_width = ImGui::CalcTextSize(main_placeholder_text.c_str()).x;
 
-        // ImGui::BringWindowToDisplayBack(ImGui::GetCurrentWindow());
+        SetCursorPosX((GetWindowSize().x - place_holder_text_width) * 0.5f);
+        SetCursorPosY(GetWindowSize().y * 0.5f);
+
+        Text(main_placeholder_text.c_str());
+
         ImGui::End();
-        // ImGui::PopStyleVar(1);
 
         loop_task(io);
 
@@ -504,7 +498,7 @@ public:
             ImPlot::EndPlot();
         }
 
-        ImGui::SliderFloat("plotting window (sec)",
+        ImGui::SliderFloat("plot window (sec)",
                            &plot_sec_,
                            0.,
                            data1_->max_plot_sec(),
@@ -561,7 +555,7 @@ public:
             ImPlot::EndPlot();
         }
 
-        ImGui::SliderFloat("plotting window (sec)",
+        ImGui::SliderFloat("plot window (sec)",
                            &plot_sec_,
                            0.,
                            minimum(std::vector<double>{data1_->max_plot_sec(), data2_->max_plot_sec()}),
@@ -625,7 +619,7 @@ public:
             ImPlot::EndPlot();
         }
 
-        ImGui::SliderFloat("plotting window (sec)",
+        ImGui::SliderFloat("plot window (sec)",
                            &plot_sec_,
                            0.,
                            minimum(std::vector<double>{data1_->max_plot_sec(), data2_->max_plot_sec(), data3_->max_plot_sec()}),
@@ -934,7 +928,7 @@ public:
 
             EndPlot();
         }
-        SliderFloat("plotting window (sec)",
+        SliderFloat("plot window (sec)",
                     &plot_sec_,
                     0.,
                     data_->max_plot_sec(),
