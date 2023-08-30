@@ -1,10 +1,17 @@
 #ifndef PLOTLIB_HPP_
 #define PLOTLIB_HPP_
 
+// #define IMGUI_DEFINE_MATH_OPERATORS
+// #define IM_VEC2_CLASS_EXTRA
+// #define IM_VEC4_CLASS_EXTRA
+
 #include "imgui.h"
+#include "imgui_internal.h"
 #include "imgui_impl_glfw.h"
 #include "imgui_impl_opengl3.h"
 #include "implot.h"
+
+// #include "imgui_dock.h"
 
 #include "signal.hpp"
 #include "efp.hpp"
@@ -68,7 +75,7 @@ void set_theme()
 
     colors[ImGuiCol_Text] = ImVec4(1.00f, 1.00f, 1.00f, 1.00f);
     colors[ImGuiCol_TextDisabled] = ImVec4(0.50f, 0.50f, 0.50f, 1.00f);
-    colors[ImGuiCol_WindowBg] = ImVec4(0.07f, 0.07f, 0.07f, 0.94f);
+    colors[ImGuiCol_WindowBg] = ImVec4(0.09f, 0.09f, 0.09f, 0.94f);
     colors[ImGuiCol_ChildBg] = ImVec4(0.07f, 0.07f, 0.07f, 0.00f);
     colors[ImGuiCol_PopupBg] = ImVec4(0.08f, 0.08f, 0.08f, 0.94f);
     colors[ImGuiCol_Border] = ImVec4(0.43f, 0.43f, 0.50f, 0.50f);
@@ -101,9 +108,11 @@ void set_theme()
     colors[ImGuiCol_ResizeGripActive] = ImVec4(0.26f, 0.59f, 0.98f, 0.95f);
     colors[ImGuiCol_Tab] = ImVec4(0.27f, 0.27f, 0.27f, 0.86f);
     colors[ImGuiCol_TabHovered] = ImVec4(0.00f, 0.41f, 0.90f, 0.80f);
-    colors[ImGuiCol_TabActive] = ImVec4(0.36f, 0.36f, 0.36f, 1.00f);
-    colors[ImGuiCol_TabUnfocused] = ImVec4(0.00f, 0.14f, 0.34f, 0.97f);
-    colors[ImGuiCol_TabUnfocusedActive] = ImVec4(0.00f, 0.19f, 0.43f, 1.00f);
+    colors[ImGuiCol_TabActive] = ImVec4(0.00f, 0.31f, 0.68f, 1.00f);
+    colors[ImGuiCol_TabUnfocused] = ImVec4(0.27f, 0.27f, 0.27f, 0.97f);
+    colors[ImGuiCol_TabUnfocusedActive] = ImVec4(0.36f, 0.36f, 0.36f, 1.00f);
+    colors[ImGuiCol_DockingPreview] = ImVec4(0.26f, 0.59f, 0.98f, 0.70f);
+    colors[ImGuiCol_DockingEmptyBg] = ImVec4(0.20f, 0.20f, 0.20f, 1.00f);
     colors[ImGuiCol_PlotLines] = ImVec4(0.61f, 0.61f, 0.61f, 1.00f);
     colors[ImGuiCol_PlotLinesHovered] = ImVec4(1.00f, 0.43f, 0.35f, 1.00f);
     colors[ImGuiCol_PlotHistogram] = ImVec4(0.90f, 0.70f, 0.00f, 1.00f);
@@ -129,6 +138,8 @@ static void run_gui(int width,
                     const G &loop_task,
                     const ImVec4 &clear_color = ImVec4(0.f / 255.f, 0.f / 255.f, 0.f / 255.f, 1.00f))
 {
+    using namespace ImGui;
+
     glfwSetErrorCallback(glfw_error_callback);
     if (!glfwInit())
         return;
@@ -171,7 +182,8 @@ static void run_gui(int width,
     ImGuiIO &io = ImGui::GetIO();
     (void)io;
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard; // Enable Keyboard Controls
-    io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;  // Enable Gamepad Controls
+    // io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;  // Enable Gamepad Controls
+    io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
     io.Fonts->AddFontFromFileTTF("/System/Library/Fonts/AppleSDGothicNeo.ttc", 16.0f);
     io.FontDefault = io.Fonts->Fonts[0];
 
@@ -184,6 +196,12 @@ static void run_gui(int width,
     ImGui_ImplOpenGL3_Init(glsl_version);
 
     init_task(io);
+    // ImGui::InitDock();
+    static bool use_work_area = true;
+    static ImGuiWindowFlags fullscreen_window_flag =
+        ImGuiWindowFlags_NoDecoration |
+        ImGuiWindowFlags_NoBringToFrontOnFocus |
+        ImGuiWindowFlags_NoMove;
 
     while (!glfwWindowShouldClose(window))
     {
@@ -194,26 +212,31 @@ static void run_gui(int width,
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
 
-#ifdef IMGUI_HAS_VIEWPORT
-        ImGuiViewport *viewport = ImGui::GetMainViewport();
-        ImGui::SetNextWindowPos(viewport->GetWorkPos());
-        ImGui::SetNextWindowSize(viewport->GetWorkSize());
-        ImGui::SetNextWindowViewport(viewport->ID);
-#else
-        ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
-        ImGui::SetNextWindowSize(ImGui::GetIO().DisplaySize);
-#endif
+        ImGuiID dockspace = ImGui::DockSpaceOverViewport();
+
+        // ImGui::SetNextWindowDockID(dockspace);
+
+        // #ifdef IMGUI_HAS_VIEWPORT
+        // ImGuiViewport *viewport = ImGui::GetMainViewport();
+        // ImGui::SetNextWindowPos(use_work_area ? viewport->WorkPos : viewport->Pos);
+        // ImGui::SetNextWindowSize(use_work_area ? viewport->WorkSize : viewport->Size);
+        // ImGui::SetNextWindowViewport(viewport->ID);
+
         static bool open_main = true;
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
-        ImGui::Begin(" ", &open_main,
-                     ImGuiWindowFlags_NoDecoration |
-                         ImGuiWindowFlags_NoResize |
-                         ImGuiWindowFlags_NoBringToFrontOnFocus);
-        ImGui::PopStyleVar(1);
+        // ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
+        ImGui::Begin("main", &open_main, fullscreen_window_flag);
+
+        ImGui::Text("Hello");
+        // ImGui::ShowStyleSelector("GUI style");
+        // ImPlot::ShowStyleSelector("plot style");
+        // ImPlot::ShowColormapSelector("plot colormap");
+        // Text("application average %.3e ms/frame (%.1f FPS)", 1000.0f / io.Framerate, io.Framerate);
+
+        // ImGui::BringWindowToDisplayBack(ImGui::GetCurrentWindow());
+        ImGui::End();
+        // ImGui::PopStyleVar(1);
 
         loop_task(io);
-
-        ImGui::End();
 
         ImGui::Render();
 
@@ -241,8 +264,18 @@ void window(const char *name, const F &f)
 {
     // todo close button
     ImGui::Begin(name);
+    // ImGui::BringWindowToDisplayFront(ImGui::GetCurrentWindow());
     f();
     ImGui::End();
+}
+
+template <typename F>
+void child(const char *name, const F &f)
+{
+    // todo close button
+    ImGui::BeginChild(name);
+    f();
+    ImGui::EndChild();
 }
 
 double now_sec()
@@ -475,7 +508,7 @@ public:
                            &plot_sec_,
                            0.,
                            data1_->max_plot_sec(),
-                           "%.3f sec");
+                           "%.3e sec");
     }
 
     Data1 *data1_;
@@ -532,7 +565,7 @@ public:
                            &plot_sec_,
                            0.,
                            minimum(std::vector<double>{data1_->max_plot_sec(), data2_->max_plot_sec()}),
-                           "%.3f sec");
+                           "%.3e sec");
     }
 
     Data1 *data1_;
@@ -596,7 +629,7 @@ public:
                            &plot_sec_,
                            0.,
                            minimum(std::vector<double>{data1_->max_plot_sec(), data2_->max_plot_sec(), data3_->max_plot_sec()}),
-                           "%.3f sec");
+                           "%.3e sec");
     }
 
     Data1 *data1_;
@@ -635,7 +668,7 @@ public:
         SetupAxisLimits(ImAxis_X1, minimum(xs_), maximum(xs_), ImGuiCond_Always);
         SetupAxisLimits(ImAxis_Y1, minimum(ys_), maximum(ys_), ImGuiCond_Always);
 
-        SetupAxisFormat(ImAxis_X1, "%.3f");
+        SetupAxisFormat(ImAxis_X1, "%.3e");
     }
 
     void plot(ImAxis y_axis)
@@ -679,8 +712,8 @@ class SnapshotPlot
 public:
     SnapshotPlot(
         std::string name,
-        int width,
-        int height,
+        float width,
+        float height,
         SnapshotData *data)
         : name_(name), width_(width), height_(height), data_(data)
     {
@@ -710,8 +743,8 @@ public:
 
 private:
     std::string name_;
-    int width_;
-    int height_;
+    float width_;
+    float height_;
 };
 
 template <size_t capacity, size_t max_sample_length>
@@ -739,8 +772,8 @@ public:
         SetupAxisLimits(ImAxis_X1, ts_view_[0], ts_view_[plot_length_ - 1], ImGuiCond_Always);
         SetupAxisLimits(ImAxis_Y1, 0, 22050, ImGuiCond_Always);
 
-        SetupAxisFormat(ImAxis_X1, "%.3f sec");
-        SetupAxisFormat(ImAxis_Y1, "%.3f Hz");
+        SetupAxisFormat(ImAxis_X1, "%.3e sec");
+        SetupAxisFormat(ImAxis_Y1, "%.3e Hz");
     }
 
     void plot(double plot_size_sec)
@@ -905,7 +938,7 @@ public:
                     &plot_sec_,
                     0.,
                     data_->max_plot_sec(),
-                    "%.3f sec");
+                    "%.3e sec");
     }
 
     D *data_;

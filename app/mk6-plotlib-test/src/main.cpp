@@ -32,21 +32,21 @@ RtDataFixedRate<600>
     y_1{"data_1", 1 / update_period_sec};
 RtDataFixedRate<600> y_2{"data_2", 1 / update_period_sec};
 RtDataFixedRate<600> y_3{"data_3", 1 / update_period_sec};
-RtPlot3 rt_plot{"rt_plot", -1, 500, &y_1, &y_2, &y_3};
+RtPlot3 rt_plot{"rt_plot", -1, -1, &y_1, &y_2, &y_3};
 
 RtDataDynamicRate<600> mouse_xs{"mouse xs"};
 RtDataDynamicRate<600> mouse_ys{"mouse ys"};
-RtPlot2 mouse_rt_plot{"mouse position", -1, 500, &mouse_xs, &mouse_ys};
+RtPlot2 mouse_rt_plot{"mouse position", -1, -1, &mouse_xs, &mouse_ys};
 
 RtDataFixedRate<1024 * 100> raw_audio{"raw audio", audio_sampling_rate_hz};
 RtDataFixedRate<1024 * 100> decimated_audio{"decimated audio", decimated_rate_hz};
-RtPlot2 audio_plot{"audio plot", -1, 500, &raw_audio, &decimated_audio};
+RtPlot2 audio_plot{"audio plot", -1, -1, &raw_audio, &decimated_audio};
 
 SnapshotData raw_fft{"frequency (hz)", "fft"};
-SnapshotPlot raw_fft_plot{"audio FFT plot", -1, 500, &raw_fft};
+SnapshotPlot raw_fft_plot{"audio FFT plot", -1, -1, &raw_fft};
 
 SpectrogramData<1024, 1 << max_fft_n> audio_fft_spectrogram{"frequency (Hz)", "time (sec)"};
-SpectrogramPlot audio_fft_spectrogram_plot{"audio FFT spectrogram plot", -1, 500, &audio_fft_spectrogram};
+SpectrogramPlot audio_fft_spectrogram_plot{"audio FFT spectrogram plot", -1, -1, &audio_fft_spectrogram};
 
 // Main code
 int main(int, char **)
@@ -134,7 +134,8 @@ int main(int, char **)
                    ImGui::ShowStyleSelector("GUI style");
                    ImPlot::ShowStyleSelector("plot style");
                    ShowColormapSelector("plot colormap");
-                   Text("application average %.3f ms/frame (%.1f FPS)", 1000.0f / io.Framerate, io.Framerate); });
+                   Text("application average %.3f ms/frame (%.1f FPS)", 1000.0f / io.Framerate, io.Framerate);
+               });
 
         ImGui::ShowDemoWindow();
     };
