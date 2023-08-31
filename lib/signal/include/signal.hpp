@@ -116,6 +116,104 @@ namespace efp
         return 1 << n;
     }
 
+    enum class WindowFunctionKind
+    {
+        Id,
+        Hann,
+        Hamming,
+        Blackman,
+        Count,
+    };
+
+    template <typename SeqA>
+    Vector<float> cosine_sum_window(const SeqA &as, float coeff)
+    {
+        const auto n = length(as);
+        return map_with_index([&](int i, auto a) -> float
+                              { return (coeff - (1. - coeff) * std::cos(2 * M_PI * i / (float)n)) * a; },
+                              as);
+    }
+
+    template <typename SeqA>
+    Vector<float> hann_window(const SeqA &as)
+    {
+        return cosine_sum_window(as, 0.5);
+    }
+
+    template <typename SeqA>
+    Vector<float> hamming_window(const SeqA &as)
+    {
+        return cosine_sum_window(as, 25. / 46.);
+    }
+
+    template <typename SeqA>
+    Vector<float> general_blackman_window(const SeqA &as, float alpha)
+    {
+        const auto n = length(as);
+        const auto a0 = (1. - alpha) / 2.;
+        const auto a1 = 1. / 2.;
+        const auto a2 = alpha / 2.;
+
+        return map_with_index([&](int i, auto a) -> float
+                              { return (a0 -
+                                        a1 * std::cos(2 * M_PI * i / (float)n) +
+                                        a2 * std::cos(4 * M_PI * i / (float)n)) *
+                                       a; },
+                              as);
+    }
+
+    template <typename SeqA>
+    Vector<float> blackman_window(const SeqA &as)
+    {
+        return general_blackman_window(as, 0.16);
+    }
+
+    template <typename SeqA>
+    Vector<float> window_function(const SeqA &as, WindowFunctionKind kind)
+    {
+        switch (kind)
+        {
+        case WindowFunctionKind::Id:
+            return map(id<float>, as);
+            break;
+
+        case WindowFunctionKind::Hann:
+            return hann_window(as);
+            break;
+
+        case WindowFunctionKind::Hamming:
+            return hamming_window(as);
+            break;
+
+        case WindowFunctionKind::Blackman:
+            return blackman_window(as);
+            break;
+
+        default:
+            abort();
+            break;
+        }
+    }
+
+    // ! Not safe to call multiple time
+    auto discrete_lpf(double cutoff_f, double t, float &x_1, float &y_1)
+    {
+        const auto omega = 2 * M_PI * cutoff_f;
+        const auto temp = omega * t;
+
+        float n_0 = temp / (temp + 2.f);
+        float n_1 = n_0;
+        float d_1 = (temp - 2.f) / (temp + 2.f);
+
+        auto lpf_impl = [&](float x)
+        { float y = n_0 * x + n_1 * x_1 - (d_1 * y_1);
+        x_1 = x;
+        y_1 = y;
+        return y; };
+
+        return lpf_impl;
+    }
+
     // todo lpf (f_c: 1024 Hz, delta_t: 1/20480)
     float lpf_1024_20480(float x)
     {
@@ -155,15 +253,17 @@ namespace efp
 
     // todo downsample
 
-    template <int N, typename F>
-    void downsample(const F &f, int *idx, float data)
+    template <typename F, typename SeqA>
+    void for_every_n(const F &f, const int n, int &idx, const SeqA &as)
     {
-        if (*idx == 0)
-        {
-            f(data);
-        }
-        (*idx)++;
-        (*idx) -= N * ((*idx) == N);
+        for_each([&](auto a)
+                 {  if (idx == 0)
+                    {
+                        f(a);
+                    }
+                    idx++;
+                    idx -= idx * (idx >= n); },
+                 as);
     }
 
     // for_each([&](uint16_t data)
@@ -180,12 +280,55 @@ namespace efp
 
     // todo decimate 2048 Hz
 
-    template <int N, typename F, typename G>
-    void decimate(float data, int *idx, const F &lpf, const G &callback)
+    template <typename SeqA, typename F>
+    void decimate(
+        const SeqA &as,
+        int original_rate_hz,
+        int decimated_rate_hz,
+        int &idx,
+        float &x_1,
+        float &y_1,
+        const F &callback)
     {
-        float filtered = lpf(data);
-        downsample<N>(callback, idx, filtered);
+        const int decimation_ratio = std::round(original_rate_hz / decimated_rate_hz);
+        const float cutoff_f_hz = decimated_rate_hz / 2.f;
+        const float omega = 2.f * M_PI * cutoff_f_hz;
+        const float temp = omega + 1.f / original_rate_hz;
+
+        float n_0 = temp / (temp + 2.f);
+        float n_1 = n_0;
+        float d_1 = (temp - 2.f) / (temp + 2.f);
+
+        auto lpf = [&](float x)
+        { float y = n_0 * x + n_1 * x_1 - (d_1 * y_1);
+        x_1 = x;
+        y_1 = y;
+        return y; };
+
+        for_every_n(callback, decimation_ratio, idx, as);
     }
+
+    // template <typename F, typename G>
+    // void decimate(int ratio, float data, int *idx, const F &lpf, const G &callback)
+    // {
+    //     // const auto cutoff_f_hz = decimated asdf const auto omega = 2 * M_PI * cutoff_f;
+    //     // const auto temp = omega * t;
+
+    //     // float n_0 = temp / (temp + 2.f);
+    //     // float n_1 = n_0;
+    //     // float d_1 = (temp - 2.f) / (temp + 2.f);
+
+    //     // auto lpf = [&](float x)
+    //     // { float y = n_0 * x + n_1 * x_1 - (d_1 * y_1);
+    //     // x_1 = x;
+    //     // y_1 = y;
+    //     // return y; };
+
+    //     // return lpf_impl;
+
+    //     float filtered = lpf(data);
+    //     downsample(ratio, callback, idx, filtered);
+    // }
 
     // todo hibert
     // ! partial fucntion. length should be power of two, otherwise abort
@@ -232,6 +375,13 @@ namespace efp
     }
 
     // todo amplitude_envelope
+
+    // Resample
+    template <typename A>
+    A resample(const A &a, double step)
+    {
+        return std::round(a / step) * step;
+    }
 
 }
 

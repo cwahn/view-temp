@@ -1,0 +1,15 @@
+add_executable(mk7-ble-vital-signal-processing
+    "src/main.cpp"
+)
+target_link_libraries(mk7-ble-vital-signal-processing
+    PRIVATE
+    imgui
+    implot
+    efp
+    simpleble::simpleble
+    ble_vital_client
+    plotlib
+    signal
+    rtaudio
+    audio-stream
+)

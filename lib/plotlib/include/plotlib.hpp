@@ -220,13 +220,13 @@ static void run_gui(int width,
         static bool open_main = true;
         ImGui::Begin("main", &open_main, fullscreen_window_flag);
 
-        const std::string main_placeholder_text = "Ars Vivendi";
-        auto place_holder_text_width = ImGui::CalcTextSize(main_placeholder_text.c_str()).x;
+        const char *main_placeholder_text = "Ars Vivendi";
+        auto place_holder_text_width = ImGui::CalcTextSize(main_placeholder_text).x;
 
         SetCursorPosX((GetWindowSize().x - place_holder_text_width) * 0.5f);
         SetCursorPosY(GetWindowSize().y * 0.5f);
 
-        Text(main_placeholder_text.c_str());
+        Text("%s", main_placeholder_text);
 
         ImGui::End();
 
@@ -257,10 +257,11 @@ template <typename F>
 void window(const char *name, const F &f)
 {
     // todo close button
-    ImGui::Begin(name);
-    // ImGui::BringWindowToDisplayFront(ImGui::GetCurrentWindow());
-    f();
-    ImGui::End();
+    if (ImGui::Begin(name))
+    {
+        f();
+        ImGui::End();
+    }
 }
 
 template <typename F>
@@ -291,10 +292,10 @@ public:
     {
     }
 
-    void setup(ImAxis y_axis, double plot_size_sec)
+    void setup(ImAxis y_axis, double min_plot_t_sec)
     {
         ImPlot::SetupAxis(y_axis, name_.c_str(), ImPlotAxisFlags_RangeFit);
-        size_t plot_length_ = plot_length(plot_size_sec);
+        size_t plot_length_ = plot_length(min_plot_t_sec);
         auto view = as_view(plot_length_);
 
         ImPlot::SetupAxisLimits(y_axis,
@@ -303,10 +304,11 @@ public:
                                 ImGuiCond_Always);
     }
 
-    void plot(ImAxis y_axis, double plot_size_sec)
+    void plot(ImAxis y_axis, double min_plot_t_sec)
     {
         ImPlot::SetAxes(ImAxis_X1, y_axis);
-        size_t plot_length_ = plot_length(plot_size_sec);
+        size_t plot_length_ = plot_length(min_plot_t_sec);
+        // ! todo duplicated view calculation potentially different length
         auto ts_view_ = ts_view(plot_length_);
         auto as_view_ = as_view(plot_length_);
         ImPlot::PlotLine(name_.c_str(), p_data(ts_view_), p_data(as_view_), plot_length_, 0, 0, sizeof(double));
@@ -334,8 +336,7 @@ public:
     void push_sequence(const SeqA &as)
     {
         const double period_sec = 1. / sample_rate_hz_;
-        double t = now_sec() - period_sec * length(as);
-        // double delta = period_sec ;
+        double t = now_sec() - period_sec * (length(as) - 1);
 
         lock();
         for_each([&](double a)
@@ -351,7 +352,7 @@ public:
         return name_;
     }
 
-    double max_plot_sec()
+    double max_plot_duration_sec()
     {
         return (double)capacity / sample_rate_hz_;
     }
@@ -360,9 +361,17 @@ public:
     Vcb<double, capacity> as_;
 
 private:
-    size_t plot_length(double plot_size_sec)
+    size_t plot_length(double min_plot_t_sec)
     {
-        return std::floor(plot_size_sec * sample_rate_hz_);
+        // return std::floor(plot_duration_sec * sample_rate_hz_);
+        return capacity - find_index([&](auto x)
+                                     { return x >= min_plot_t_sec; },
+                                     ts_)
+                              .match(
+                                  [&](Nothing _) -> size_t
+                                  { return capacity - 1; },
+                                  [](int i) -> size_t
+                                  { return i; });
     }
 
     VectorView<const double> ts_view(size_t plot_length)
@@ -389,10 +398,10 @@ public:
     {
     }
 
-    void setup(ImAxis y_axis, double plot_size_sec)
+    void setup(ImAxis y_axis, double min_plot_t_sec)
     {
         ImPlot::SetupAxis(y_axis, name_.c_str(), ImPlotAxisFlags_RangeFit);
-        size_t plot_length_ = plot_length(plot_size_sec);
+        size_t plot_length_ = plot_length(min_plot_t_sec);
         auto view = as_view(plot_length_);
 
         ImPlot::SetupAxisLimits(y_axis,
@@ -401,10 +410,10 @@ public:
                                 ImGuiCond_Always);
     }
 
-    void plot(ImAxis y_axis, double plot_size_sec)
+    void plot(ImAxis y_axis, double min_plot_t_sec)
     {
         ImPlot::SetAxes(ImAxis_X1, y_axis);
-        size_t plot_length_ = plot_length(plot_size_sec);
+        size_t plot_length_ = plot_length(min_plot_t_sec);
         auto ts_view_ = ts_view(plot_length_);
         auto as_view_ = as_view(plot_length_);
         ImPlot::PlotLine(name_.c_str(), p_data(ts_view_), p_data(as_view_), plot_length_, 0, 0, sizeof(double));
@@ -428,12 +437,29 @@ public:
         unlock();
     }
 
+    template <typename SeqA>
+    void push_sequence(const SeqA &as)
+    {
+        const double now_sec_ = now_sec();
+        lock();
+        const double period_sec = (now_sec_ - ts_[capacity - 1]) / (double)length(as);
+        // double t = now_sec_ - period_sec * (length(as) - 1);
+        double t = ts_[capacity - 1] + period_sec;
+
+        for_each([&](double a)
+                 { ts_.push_back(t);
+                   as_.push_back(a);
+                   t += period_sec; },
+                 as);
+        unlock();
+    }
+
     std::string name()
     {
         return name_;
     }
 
-    double max_plot_sec()
+    double max_plot_duration_sec()
     {
         return now_sec() - ts_[0];
     }
@@ -442,17 +468,16 @@ public:
     Vcb<double, capacity> as_;
 
 private:
-    size_t plot_length(double plot_size_sec)
+    size_t plot_length(double min_plot_t_sec)
     {
-        double min_plot_time = now_sec() - plot_size_sec;
-        return capacity - (find_index([&](auto x)
-                                      { return x > min_plot_time; },
-                                      ts_))
+        return capacity - find_index([&](auto x)
+                                     { return x >= min_plot_t_sec; },
+                                     ts_)
                               .match(
-                                  [](int i)
-                                  { return i; },
-                                  [](Nothing _)
-                                  { return 0; });
+                                  [&](Nothing _) -> size_t
+                                  { return capacity - 1; },
+                                  [](int i) -> size_t
+                                  { return i; });
     }
 
     VectorView<const double> ts_view(size_t plot_length)
@@ -476,7 +501,7 @@ public:
     RtPlot1(std::string name, int width, int height, Data1 *data)
         : name_(name), width_(width), height_(height), data1_(data)
     {
-        plot_sec_ = minimum(std::vector<double>{data1_->max_plot_sec()}) / 2.;
+        plot_duration_sec_ = minimum(std::vector<double>{data1_->max_plot_duration_sec()}) / 2.;
     }
 
     void plot()
@@ -485,30 +510,32 @@ public:
         {
             ImPlot::SetupAxis(ImAxis_X1, "time(sec)", ImPlotAxisFlags_RangeFit);
             auto now_sec_ = now_sec();
-            ImPlot::SetupAxisLimits(ImAxis_X1, now_sec_ - plot_sec_, now_sec_, ImGuiCond_Always);
+            const auto min_plot_t_sec_ = now_sec_ - plot_duration_sec_;
+
+            ImPlot::SetupAxisLimits(ImAxis_X1, min_plot_t_sec_, now_sec_, ImGuiCond_Always);
 
             data1_->lock();
-            data1_->setup(ImAxis_Y1, plot_sec_);
+            data1_->setup(ImAxis_Y1, min_plot_t_sec_);
 
             ImPlot::SetNextFillStyle(IMPLOT_AUTO_COL, 0.5f);
 
-            data1_->plot(ImAxis_Y1, plot_sec_);
+            data1_->plot(ImAxis_Y1, min_plot_t_sec_);
             data1_->unlock();
 
             ImPlot::EndPlot();
         }
 
         ImGui::SliderFloat("plot window (sec)",
-                           &plot_sec_,
+                           &plot_duration_sec_,
                            0.,
-                           data1_->max_plot_sec(),
+                           data1_->max_plot_duration_sec(),
                            "%.3e sec");
     }
 
     Data1 *data1_;
 
 private:
-    float plot_sec_;
+    float plot_duration_sec_;
     std::string name_;
     int width_;
     int height_;
@@ -526,10 +553,10 @@ public:
         Data2 *data2)
         : name_(name), width_(width), height_(height), data1_(data1), data2_(data2)
     {
-        plot_sec_ = minimum(std::vector<double>{
-                        data1_->max_plot_sec(),
-                        data2_->max_plot_sec()}) /
-                    2.;
+        plot_duration_sec_ = minimum_v(
+                                 data1_->max_plot_duration_sec(),
+                                 data2_->max_plot_duration_sec()) /
+                             2.;
     }
 
     void plot()
@@ -537,28 +564,29 @@ public:
         if (ImPlot::BeginPlot(name_.c_str(), ImVec2(width_, height_)))
         {
             ImPlot::SetupAxis(ImAxis_X1, "time(sec)", ImPlotAxisFlags_RangeFit);
-            auto now_sec_ = now_sec();
-            ImPlot::SetupAxisLimits(ImAxis_X1, now_sec_ - plot_sec_, now_sec_, ImGuiCond_Always);
+            const auto now_sec_ = now_sec();
+            const auto min_plot_t_sec_ = now_sec_ - plot_duration_sec_;
+            ImPlot::SetupAxisLimits(ImAxis_X1, min_plot_t_sec_, now_sec_, ImGuiCond_Always);
 
             data1_->lock();
-            data1_->setup(ImAxis_Y1, plot_sec_);
+            data1_->setup(ImAxis_Y1, min_plot_t_sec_);
             data2_->lock();
-            data2_->setup(ImAxis_Y2, plot_sec_);
+            data2_->setup(ImAxis_Y2, min_plot_t_sec_);
 
             ImPlot::SetNextFillStyle(IMPLOT_AUTO_COL, 0.5f);
 
-            data1_->plot(ImAxis_Y1, plot_sec_);
+            data1_->plot(ImAxis_Y1, min_plot_t_sec_);
             data1_->unlock();
-            data2_->plot(ImAxis_Y2, plot_sec_);
+            data2_->plot(ImAxis_Y2, min_plot_t_sec_);
             data2_->unlock();
 
             ImPlot::EndPlot();
         }
 
         ImGui::SliderFloat("plot window (sec)",
-                           &plot_sec_,
+                           &plot_duration_sec_,
                            0.,
-                           minimum(std::vector<double>{data1_->max_plot_sec(), data2_->max_plot_sec()}),
+                           minimum_v(data1_->max_plot_duration_sec(), data2_->max_plot_duration_sec()),
                            "%.3e sec");
     }
 
@@ -566,7 +594,7 @@ public:
     Data2 *data2_;
 
 private:
-    float plot_sec_;
+    float plot_duration_sec_;
     std::string name_;
     int width_;
     int height_;
@@ -585,11 +613,11 @@ public:
         Data3 *data3)
         : name_(name), width_(width), height_(height), data1_(data1), data2_(data2), data3_(data3)
     {
-        plot_sec_ = minimum(std::vector<double>{
-                        data1_->max_plot_sec(),
-                        data2_->max_plot_sec(),
-                        data3_->max_plot_sec()}) /
-                    2.;
+        plot_duration_sec_ = minimum(std::vector<double>{
+                                 data1_->max_plot_duration_sec(),
+                                 data2_->max_plot_duration_sec(),
+                                 data3_->max_plot_duration_sec()}) /
+                             2.;
     }
 
     void plot()
@@ -598,40 +626,41 @@ public:
         {
             ImPlot::SetupAxis(ImAxis_X1, "time(sec)", ImPlotAxisFlags_RangeFit);
             auto now_sec_ = now_sec();
-            ImPlot::SetupAxisLimits(ImAxis_X1, now_sec_ - plot_sec_, now_sec_, ImGuiCond_Always);
+            const auto min_plot_t_sec_ = now_sec_ - plot_duration_sec_;
+            ImPlot::SetupAxisLimits(ImAxis_X1, min_plot_t_sec_, now_sec_, ImGuiCond_Always);
 
             data1_->lock();
-            data1_->setup(ImAxis_Y1, plot_sec_);
+            data1_->setup(ImAxis_Y1, min_plot_t_sec_);
             data2_->lock();
-            data2_->setup(ImAxis_Y2, plot_sec_);
+            data2_->setup(ImAxis_Y2, min_plot_t_sec_);
             data3_->lock();
-            data3_->setup(ImAxis_Y3, plot_sec_);
+            data3_->setup(ImAxis_Y3, min_plot_t_sec_);
 
             ImPlot::SetNextFillStyle(IMPLOT_AUTO_COL, 0.5f);
 
-            data1_->plot(ImAxis_Y1, plot_sec_);
+            data1_->plot(ImAxis_Y1, min_plot_t_sec_);
             data1_->unlock();
-            data2_->plot(ImAxis_Y2, plot_sec_);
+            data2_->plot(ImAxis_Y2, min_plot_t_sec_);
             data2_->unlock();
-            data3_->plot(ImAxis_Y3, plot_sec_);
+            data3_->plot(ImAxis_Y3, min_plot_t_sec_);
             data3_->unlock();
 
             ImPlot::EndPlot();
         }
 
         ImGui::SliderFloat("plot window (sec)",
-                           &plot_sec_,
+                           &plot_duration_sec_,
                            0.,
-                           minimum(std::vector<double>{data1_->max_plot_sec(), data2_->max_plot_sec(), data3_->max_plot_sec()}),
+                           minimum(std::vector<double>{data1_->max_plot_duration_sec(), data2_->max_plot_duration_sec(), data3_->max_plot_duration_sec()}),
                            "%.3e sec");
     }
 
     Data1 *data1_;
     Data2 *data2_;
-    Data1 *data3_;
+    Data3 *data3_;
 
 private:
-    float plot_sec_;
+    float plot_duration_sec_;
     std::string name_;
     int width_;
     int height_;
@@ -645,11 +674,11 @@ public:
     {
     }
 
-    void setup(double plot_size_sec)
+    void setup(double plot_duration_sec)
     {
         using namespace ImPlot;
         // ImPlot::SetupAxis(y_axis, name_.c_str(), ImPlotAxisFlags_RangeFit);
-        // size_t plot_length_ = plot_length(plot_size_sec);
+        // size_t plot_length_ = plot_length(plot_duration_sec);
         // auto view = as_view(plot_length_);
 
         // ImPlot::SetupAxisLimits(y_axis,
@@ -669,7 +698,7 @@ public:
     {
         using namespace ImPlot;
         // ImPlot::SetAxes(ImAxis_X1, y_axis);
-        // size_t plot_length_ = plot_length(plot_size_sec);
+        // size_t plot_length_ = plot_length(plot_duration_sec);
         // auto ts_view_ = ts_view(plot_length_);
         // auto as_view_ = as_view(plot_length_);
         // ImPlot::PlotLine(name_.c_str(), p_data(ts_view_), p_data(as_view_), plot_length_, 0, 0, sizeof(double));
@@ -718,7 +747,8 @@ public:
         if (ImPlot::BeginPlot(name_.c_str(), ImVec2(width_, height_)))
         {
             ImPlot::SetupAxis(ImAxis_X1, "time(sec)", ImPlotAxisFlags_RangeFit);
-            auto now_sec_ = now_sec();
+            // auto now_sec_ = now_sec();
+            // const auto min_plot_t_sec_ = now_sec_ - plot_duration_sec_;
             ImPlot::SetupAxisLimits(ImAxis_X1, minimum(data_->xs_), maximum(data_->ys_), ImGuiCond_Always);
 
             data_->lock();
@@ -750,16 +780,16 @@ public:
     {
     }
 
-    void setup(double plot_size_sec)
+    void setup(double plot_duration_sec)
     {
         using namespace ImGui;
         using namespace ImPlot;
 
-        auto plot_length_ = plot_length(plot_size_sec);
+        auto plot_length_ = plot_length(plot_duration_sec);
         auto ass_view_ = ass_view(plot_length_);
         auto ts_view_ = ts_view(plot_length_);
 
-        plot_size_sec_ = plot_size_sec;
+        plot_size_sec_ = plot_duration_sec;
 
         SetupAxes(NULL, NULL, ImPlotAxisFlags_NoTickLabels);
 
@@ -770,12 +800,12 @@ public:
         SetupAxisFormat(ImAxis_Y1, "%.3e Hz");
     }
 
-    void plot(double plot_size_sec)
+    void plot(double plot_duration_sec)
     {
         using namespace ImGui;
         using namespace ImPlot;
 
-        auto plot_length_ = plot_length(plot_size_sec);
+        auto plot_length_ = plot_length(plot_duration_sec);
         auto ass_view_ = ass_view(plot_length_);
         auto ts_view_ = ts_view(plot_length_);
 
@@ -842,7 +872,7 @@ public:
         unlock();
     }
 
-    double max_plot_sec()
+    double max_plot_duration_sec()
     {
         return now_sec() - minimum(ts_);
     }
@@ -856,10 +886,10 @@ private:
         return capacity / sample_length_;
     }
 
-    int plot_length(double plot_size_sec)
+    int plot_length(double plot_duration_sec)
     {
         // ! need to be fixed
-        double min_plot_time_sec = now_sec() - plot_size_sec;
+        double min_plot_time_sec = now_sec() - plot_duration_sec;
         int min_sample_index = find_index([&](auto x)
                                           { return x > min_plot_time_sec; },
                                           ts_)
@@ -918,20 +948,20 @@ public:
             PushColormap(ImPlotColormap_Plasma);
 
             data_->lock();
-            data_->setup(plot_sec_);
+            data_->setup(plot_duration_sec_);
 
             ImPlot::SetNextFillStyle(IMPLOT_AUTO_COL, 0.5f);
 
-            data_->plot(plot_sec_);
+            data_->plot(plot_duration_sec_);
             data_->unlock();
             PopColormap();
 
             EndPlot();
         }
         SliderFloat("plot window (sec)",
-                    &plot_sec_,
+                    &plot_duration_sec_,
                     0.,
-                    data_->max_plot_sec(),
+                    data_->max_plot_duration_sec(),
                     "%.3e sec");
     }
 
@@ -942,7 +972,7 @@ private:
     int width_;
     int height_;
 
-    float plot_sec_;
+    float plot_duration_sec_;
     int sample_length_;
 };
 
