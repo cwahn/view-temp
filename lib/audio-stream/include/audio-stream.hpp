@@ -20,14 +20,51 @@ public:
     {
         // RtAudio audio;
         // RtAudio::StreamParameters inputParams;
+        auto err_callback_ = [](RtAudioErrorType type, const std::string &errorText)
+        {
+            switch(type)
+            {
+                case(RTAUDIO_NO_ERROR):      /*!< No error. */
+                break;
+                case(RTAUDIO_WARNING):           /*!< A non-critical error. */
+                break;
+                case(RTAUDIO_UNKNOWN_ERROR):     /*!< An unspecified error type. */
+                break;
+                case(RTAUDIO_DEVICE_DISCONNECT): /*!< A device in use was disconnected. */
+                break;
+
+                
+            }
+            std::cout << errorText << std::endl;
+        };
+        audio_.setErrorCallback(err_callback_);
 
         if (audio_.getDeviceCount() < 1)
         {
             std::cout << "no audio devices available." << std::endl;
             abort();
         }
+        int NN = audio_.getDeviceCount();
+        std::cout << audio_.getDeviceCount() << std::endl;
 
-        input_params_.deviceId = audio_.getDefaultInputDevice();
+        auto ids = audio_.getDeviceIds();
+        bool available = false;
+        for (auto i : ids) {
+            RtAudio::DeviceInfo info = audio_.getDeviceInfo(i);
+            std::cout << info.name << " : " << info.inputChannels << " , " << info.duplexChannels << " , " << info.isDefaultInput << std::endl;
+            available |= info.inputChannels > 0 || info.duplexChannels  > 0;
+            if (info.inputChannels > 0)
+                input_params_.deviceId = info.ID;
+        }
+
+        // if (!available)
+        // {
+        //     while(!available)
+        //     {
+
+        //     }
+        // }
+        //input_params_.deviceId = audio_.getDefaultInputDevice();
         input_params_.nChannels = 1; // Mono input
         input_params_.firstChannel = 0;
 
@@ -38,18 +75,19 @@ public:
                                    double streamTime, RtAudioStreamStatus status, void *userData)
         {
             float *input = static_cast<float *>(inputBuffer);
-            efp::VectorView<float> inputs{input, (size_t)nFrames};
+            efp::VectorView<float> inputs{input, static_cast<const int>(nFrames), static_cast<const int>(nFrames)};
 
             // for (unsigned int i = 0; i < nFrames; ++i)
             // {
-            //     // std::cout << "Sample " << i << ": " << input[i] << std::endl;
-            //     callback(input[i]);
+            //      std::cout << "Sample " << i << ": " << input[i] << "\n" ;
+            //     //callback(input[i]);
             // }
-
+            //   std::cout <<   std::endl;
             callback(inputs);
 
             return 0;
         };
+
 
         RtAudioErrorType err;
         err = audio_.openStream(
@@ -102,7 +140,7 @@ private:
     //     return 0;
     // }
 
-    RtAudio audio_;
+    RtAudio audio_{};
     RtAudio::StreamParameters input_params_;
     unsigned int buffer_length_;
     RtAudio::StreamOptions options_;
