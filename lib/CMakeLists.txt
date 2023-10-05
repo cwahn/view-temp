@@ -17,12 +17,22 @@ target_include_directories(imgui
     PUBLIC
     ${IMGUI_DIR}/
     ${IMGUI_DIR}/backends
+    ${GLFW3_INCLUDE_DIR}
 )
 
-target_link_libraries(imgui
-    PUBLIC
-    OpenGL::GL
-    glfw)
+if(WIN32)
+    target_link_libraries(imgui
+        PUBLIC
+        OpenGL::GL
+        ${GLFW3_LIBRARY}
+    )
+else()
+    target_link_libraries(imgui
+        PUBLIC
+        OpenGL::GL
+        glfw3
+    )
+endif()
 
 add_library(implot STATIC)
 set(IMPLOT_DIR ./implot)
@@ -43,15 +53,22 @@ target_include_directories(implot
     ${IMPLOT_DIR}/
 )
 
-add_library(fft esp32-fft/src/fft.c)
+add_library(fft STATIC esp32-fft/src/fft.c)
 target_include_directories(fft PUBLIC esp32-fft/src)
+
+add_library(serialib serialib/lib/serialib.cpp)
+target_include_directories(serialib PUBLIC serialib/lib)
+
+#set(RTAUDIO_API_ASIO ON )
+#set(RTAUDIO_API_WASAPI OFF )
 
 add_subdirectory(efp)
 add_subdirectory(simple-ble/simpleble)
 add_subdirectory(ble-vital-client)
-add_subdirectory(serialib)
 add_subdirectory(rs232-stream)
 add_subdirectory(plotlib)
 add_subdirectory(signal)
 add_subdirectory(rtaudio)
 add_subdirectory(audio-stream)
+
+

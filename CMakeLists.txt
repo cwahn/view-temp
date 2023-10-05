@@ -20,8 +20,9 @@ enable_testing()
 
 
 find_package(glfw3)
-if(NOT GLFW3_FOUND)
+if(NOT glfw3_FOUND)
     if(WIN32)
+        message("Prebuilt GLFW3 used.")
         file(DOWNLOAD https://github.com/glfw/glfw/releases/download/3.3.8/glfw-3.3.8.bin.WIN64.zip ${CMAKE_BINARY_DIR}/lib/glfw-3.3.8.bin.WIN64.zip)
 
         execute_process(
@@ -29,11 +30,11 @@ if(NOT GLFW3_FOUND)
             COMMAND tar -xf ${CMAKE_BINARY_DIR}/lib/glfw-3.3.8.bin.WIN64.zip -C ${CMAKE_BINARY_DIR}/lib
         )
 
-        set(GLFW_INCLUDE_DIRS ${CMAKE_BINARY_DIR}/lib/glfw-3.3.8.bin.WIN64/include)
-        set(GLFW_LIBRARIES ${CMAKE_BINARY_DIR}/lib/glfw-3.3.8.bin.WIN64/lib-vc2022/glfw3_mt.lib)
+        set(GLFW3_INCLUDE_DIR ${CMAKE_BINARY_DIR}/lib/glfw-3.3.8.bin.WIN64/include)
+        set(GLFW3_LIBRARY ${CMAKE_BINARY_DIR}/lib/glfw-3.3.8.bin.WIN64/lib-vc2022/glfw3_mt.lib)
     else()
-    # todo: support other OS
-    message(FATAL_ERROR "Prebuilt library of GLFW3 not supported.")
+        # todo: support other OS
+        message(WARNING "Prebuilt library of GLFW3 not supported.")
     endif()
 endif()
 
