@@ -108,7 +108,7 @@ int main(int, char **)
             raw_fft.unlock();
 
             audio_fft_spectrogram.push_sequence(map([](float x) -> float
-                                                    { return std::log10(x); },
+                                                    { return std::log10(max(x, 1e-7f)); },
                                                     fft_result));
             audio_fft_spectrogram.min_y_ = fft_freqs[0];
             audio_fft_spectrogram.max_y_ = fft_freqs[fft_length_ / 2 - 1];
