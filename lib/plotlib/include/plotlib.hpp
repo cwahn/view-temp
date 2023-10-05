@@ -4,6 +4,7 @@
 // #define IMGUI_DEFINE_MATH_OPERATORS
 // #define IM_VEC2_CLASS_EXTRA
 // #define IM_VEC4_CLASS_EXTRA
+#include <mutex>
 
 #include "imgui.h"
 #include "imgui_internal.h"
@@ -189,7 +190,11 @@ namespace
         io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard; // Enable Keyboard Controls
         // io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;  // Enable Gamepad Controls
         io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+#ifdef __APPLE__
         io.Fonts->AddFontFromFileTTF("/System/Library/Fonts/AppleSDGothicNeo.ttc", 16.0f);
+#else
+        io.Fonts->AddFontDefault();
+#endif
         io.FontDefault = io.Fonts->Fonts[0];
 
         // Setup Dear ImGui style
@@ -315,7 +320,7 @@ namespace
             // ! todo duplicated view calculation potentially different length
             auto ts_view_ = ts_view(plot_length_);
             auto as_view_ = as_view(plot_length_);
-            ImPlot::PlotLine(name_.c_str(), p_data(ts_view_), p_data(as_view_), plot_length_, 0, 0, sizeof(double));
+            ImPlot::PlotLine(name_.c_str(), data(ts_view_), data(as_view_), plot_length_, 0, 0, sizeof(double));
         }
 
         void lock()
@@ -420,7 +425,7 @@ namespace
             size_t plot_length_ = plot_length(min_plot_t_sec);
             auto ts_view_ = ts_view(plot_length_);
             auto as_view_ = as_view(plot_length_);
-            ImPlot::PlotLine(name_.c_str(), p_data(ts_view_), p_data(as_view_), plot_length_, 0, 0, sizeof(double));
+            ImPlot::PlotLine(name_.c_str(), data(ts_view_), data(as_view_), plot_length_, 0, 0, sizeof(double));
         }
 
         void lock()
@@ -486,12 +491,12 @@ namespace
 
         VectorView<const double> ts_view(size_t plot_length)
         {
-            return VectorView<const double>{ts_.end() - plot_length, plot_length};
+            return VectorView<const double>{ts_.end() - plot_length, static_cast<const int>(plot_length), static_cast<const int>(plot_length)};
         }
 
         VectorView<const double> as_view(size_t plot_length)
         {
-            return VectorView<const double>{as_.end() - plot_length, plot_length};
+            return VectorView<const double>{as_.end() - plot_length, static_cast<const int>(plot_length), static_cast<const int>(plot_length)};
         }
 
         std::string name_;
@@ -622,7 +627,7 @@ namespace
             : name_(name), width_(width), height_(height), data1_(data1), data2_(data2), data3_(data3)
         {
             plot_duration_sec_ = max_v(
-                minimum(std::vector<double>{
+                minimum(Vector<double>{
                     data1_->max_plot_duration_sec(),
                     data2_->max_plot_duration_sec(),
                     data3_->max_plot_duration_sec()}) /
@@ -661,7 +666,7 @@ namespace
             ImGui::SliderFloat("plot window (sec)",
                                &plot_duration_sec_,
                                0.,
-                               minimum(std::vector<double>{data1_->max_plot_duration_sec(), data2_->max_plot_duration_sec(), data3_->max_plot_duration_sec()}),
+                               minimum(Vector<double>{data1_->max_plot_duration_sec(), data2_->max_plot_duration_sec(), data3_->max_plot_duration_sec()}),
                                "%.3e sec");
         }
 
@@ -711,9 +716,9 @@ namespace
             // size_t plot_length_ = plot_length(plot_duration_sec);
             // auto ts_view_ = ts_view(plot_length_);
             // auto as_view_ = as_view(plot_length_);
-            // ImPlot::PlotLine(name_.c_str(), p_data(ts_view_), p_data(as_view_), plot_length_, 0, 0, sizeof(double));
+            // ImPlot::PlotLine(name_.c_str(), data(ts_view_), data(as_view_), plot_length_, 0, 0, sizeof(double));
 
-            PlotLine(y_name_.c_str(), p_data(xs_), p_data(ys_), length(ys_), 0, 0, sizeof(double));
+            PlotLine(y_name_.c_str(), data(xs_), data(ys_), length(ys_), 0, 0, sizeof(double));
         }
 
         void lock()
@@ -731,8 +736,8 @@ namespace
             return y_name_;
         }
 
-        std::vector<double> xs_;
-        std::vector<double> ys_;
+        Vector<double> xs_;
+        Vector<double> ys_;
 
     private:
         std::string x_name_;
@@ -824,7 +829,7 @@ namespace
             // ! Need fix
             PlotHeatmap(
                 y_name_.c_str(),
-                p_data(ass_view_),
+                data(ass_view_),
                 sample_length_,     // rows on display?? yes
                 plot_length_,       // rows on display? yes
                 minimum(ass_view_), // color map min?
@@ -916,13 +921,13 @@ namespace
 
         VectorView<const double> ts_view(size_t plot_length)
         {
-            return VectorView<const double>{ts_.end() - plot_length, plot_length};
+            return VectorView<const double>{ts_.end() - plot_length, static_cast<const int>(plot_length), static_cast<const int>(plot_length)};
         }
 
         VectorView<const double> ass_view(size_t plot_length)
         {
             size_t point_num = plot_length * sample_length_;
-            return VectorView<const double>{ass_.end() - point_num, point_num};
+            return VectorView<const double>{ass_.end() - point_num, static_cast<const int>(point_num), static_cast<const int>(point_num)};
         }
 
         std::string x_name_;

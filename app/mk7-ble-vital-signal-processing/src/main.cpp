@@ -88,8 +88,8 @@ int main(int, char **)
         {
             decimated_audio.lock();
             auto &as = decimated_audio.as_;
-            size_t fft_length_ = fft_length(fft_n);
-            VectorView<const double> fft_view{p_data(as) + length(as) - fft_length_, fft_length_};
+            int fft_length_ = fft_length(fft_n);
+            VectorView<const double> fft_view{data(as) + length(as) - fft_length_, fft_length_, fft_length_};
             decimated_audio.unlock();
 
             auto detrended_input = normalize_n<float>(detrend<double>(remove_dc<double>(fft_view)));
@@ -107,7 +107,7 @@ int main(int, char **)
                               fft_result);
             raw_fft.unlock();
 
-            audio_fft_spectrogram.push_sequence(map([](auto x)
+            audio_fft_spectrogram.push_sequence(map([](float x) -> float
                                                     { return std::log10(x); },
                                                     fft_result));
             audio_fft_spectrogram.min_y_ = fft_freqs[0];
