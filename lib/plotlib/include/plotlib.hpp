@@ -511,7 +511,7 @@ namespace
             : name_(name), width_(width), height_(height), data1_(data)
         {
             plot_duration_sec_ = max_v(
-                minimum(std::vector<double>{data1_->max_plot_duration_sec()}) / 2.,
+                minimum(Vector<double>{data1_->max_plot_duration_sec()}) / 2.,
                 1.);
         }
 
