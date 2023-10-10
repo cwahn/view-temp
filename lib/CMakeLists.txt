@@ -30,7 +30,7 @@ else()
     target_link_libraries(imgui
         PUBLIC
         OpenGL::GL
-        glfw3
+        glfw
     )
 endif()
 
