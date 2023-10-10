@@ -18,8 +18,10 @@ endif()
 include(CTest)
 enable_testing()
 
+# Ubuntu Requirment
+# libasound2-dev pkg-config libglfw3 libglfw3-dev libdbus-1-dev
 
-find_package(glfw3)
+find_package(glfw3 REQUIRED)
 if(NOT glfw3_FOUND)
     if(WIN32)
         message("Prebuilt GLFW3 used.")
