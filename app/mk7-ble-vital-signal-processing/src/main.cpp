@@ -65,7 +65,7 @@ SpectrogramPlot audio_fft_spectrogram_plot{"audio FFT spectrogram plot", -1, -1,
 // Main code
 int main(int, char **)
 {
-    auto audio_callback = [&](VectorView<float> xs)
+    auto audio_callback = [&](VectorView<float> &xs)
     {
         raw_audio.push_sequence(xs);
         double step = 2 * sample_amplitude / ((1 << sample_resolution_bit) - 1);
