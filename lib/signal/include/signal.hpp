@@ -33,7 +33,7 @@ namespace efp
     Vector<A> normalize_n(const SeqA &as)
     {
         return map([&](auto x)
-                   { return (A)(x / (Element_t<SeqA>)length(as)); },
+                   { return (A)(x / length(as)); },
                    as);
     }
 
@@ -41,7 +41,8 @@ namespace efp
     template <typename SeqA>
     Vector<float> fft_complex(SeqA &as)
     {
-        Vector<float> bs(length(as));
+        Vector<float> bs;
+        bs.resize(length(as));
 
         fft_config_t *fft_config = fft_init(
             length(as),
@@ -59,7 +60,8 @@ namespace efp
     template <typename SeqA>
     Vector<float> fft_real(SeqA &as)
     {
-        Vector<float> bs(length(as));
+        Vector<float> bs;
+        bs.resize(length(as));
 
         fft_config_t *fft_config = fft_init(
             length(as),
@@ -78,7 +80,8 @@ namespace efp
     template <typename SeqA>
     Vector<float> ifft_complex(SeqA &as)
     {
-        Vector<float> result(length(as));
+        Vector<float> result;
+        result.resize(length(as));
 
         fft_config_t *fft_config = fft_init(
             length(as),
@@ -97,7 +100,8 @@ namespace efp
     template <typename SeqA>
     Vector<float> ifft_real(SeqA &as)
     {
-        Vector<float> result(length(as));
+        Vector<float> result;
+        result.resize(length(as));
 
         fft_config_t *fft_config = fft_init(
             length(as),
@@ -111,7 +115,7 @@ namespace efp
         return result;
     }
 
-    size_t fft_length(int n)
+    int fft_length(int n)
     {
         return 1 << n;
     }
