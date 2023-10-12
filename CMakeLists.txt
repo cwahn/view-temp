@@ -19,7 +19,9 @@ include(CTest)
 enable_testing()
 
 # Ubuntu Requirment
-# libasound2-dev pkg-config libglfw3 libglfw3-dev libdbus-1-dev
+# libasound2-dev pkg-config libglfw3 libglfw3-dev libdbus-1-dev openssl libssl-dev
+
+find_package(OpenSSL REQUIRED)
 
 find_package(glfw3 REQUIRED)
 if(NOT glfw3_FOUND)
