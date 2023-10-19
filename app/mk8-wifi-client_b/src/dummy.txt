@@ -1,0 +1,88 @@
+/*
+
+*/
+class MessageType
+{
+public:
+	void seSignalType(const int &x)
+	{
+		std::lock_guard<std::mutex> lm(mm);
+		flag_mask = x;
+	}
+
+	auto geSignalType()
+	{
+		std::lock_guard<std::mutex> lm(mm);
+		return flag_mask;
+	}
+
+	static bool get_nth_signal(const int32_t &flag_mask_, const int32_t &n)
+	{
+		return flag_mask_ & (1 << n);
+	}
+
+private:
+	std::mutex mm;
+	int32_t msg_mask{0};
+};
+
+class MessageBuffer
+{
+public:
+	MessageBuffer()
+	{
+	}
+
+	void set(LogBuffer *data)
+	{
+		std::unique_lock<std::mutex> lock(slock);
+		if (!fresh_data)
+		{
+			memcpy(lbuffer, data, sizeof(LogBuffer) * 32);
+			for (int i = 0; i < 32; ++i)
+			{
+				if (MessageType::get_nth_signal(msg_mask, i))
+				{
+					memcpy(lbuffer[i].data.data(), data[i].data.data(), sizeof(int64_t) * 10);
+				}
+				data[i].data.resize(0);
+			}
+			fresh_data = true;
+		}
+	}
+
+	// network time >> sensor dispatch time ? sup not needed?
+	// -> don't check buffer has new data. always copy
+	// void get(int *data)
+	// {
+	// 	std::unique_lock<std::mutex> lock(slock);
+
+	// 	memcpy(data , buffer, 4 * 16);
+	// }
+
+	// --get----send------  --get----send------  --get----send------
+	// -P-S-  -P-S-  -P-S-  -P-S-  -P-S-  -P-S-  -P-S-  -P-S-  -P-S-
+	void get_and_setype(LogBuffer *data, int32_t msg_mask_new)
+	{
+		std::unique_lock<std::mutex> lock(slock);
+		if (fresh_data && msg_mask_old == msg_mask_new)
+		{
+			memcpy(data, lbuffer, sizeof(LogBuffer) * 32);
+			for (int i = 0; i < 32; ++i)
+			{
+				if (MessageType::get_nth_signal(msg_mask_new, i))
+				{
+					memcpy(data[i].data.data(), lbuffer[i].data.data(), sizeof(int64_t) * 10);
+				}
+			}
+			fresh_data = false;
+		}
+		msg_mask_old = msg_mask_new;
+	}
+
+private:
+	std::mutex slock;
+	bool fresh_data{true};
+	int32_t msg_mask_old{0};
+	LogBuffer lbuffer[32];
+};
