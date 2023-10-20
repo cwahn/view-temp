@@ -4,6 +4,7 @@
 #include <mutex>
 #include <string>
 #include <cstring>
+#include <tuple>
 #include <condition_variable>
 
 #include <mosquitto.h>
@@ -75,10 +76,9 @@ thread_local SignalThreadID SIGNAL_THREAD_ID{0};
 template <typename T>
 using SignalBuffer = efp::Vcq<T, 10>;
 
-	// double buffer
-	static constexpr const int SIGNAL_GLOAB_BUFFER_ELEM_SIZE = sizeof(SignalBuffer<int64_t>);
-	static constexpr const int SIGNAL_GLOAB_BUFFER_SIZE = SIGNAL_GLOAB_BUFFER_ELEM_SIZE * SIGNAL_NUM;
-	alignas(SignalBuffer<int64_t>) static int8_t SIGNAL_GLOAB_BUFFER[2 * SIGNAL_GLOAB_BUFFER_SIZE];
+// double buffer
+static constexpr const int SIGNAL_GLOAB_BUFFER_ELEM_SIZE = sizeof(SignalBuffer<int64_t>);
+// static constexpr const int SIGNAL_GLOAB_BUFFER_SIZE = SIGNAL_GLOAB_BUFFER_ELEM_SIZE * SIGNAL_NUM;
 
 
 template <typename T>
@@ -255,89 +255,58 @@ public:
 		//	THREAD_SIGNAL_ID[std::get<1>(SIGNAL_TYPE_THRD[s])].push_back( std::get<0>(SIGNAL_TYPE_THRD[s]) );
 	}
 
-	template<typename A>
-	class StackSignalTypes
+// mutex not needed. 
+	void subscribe_thread(const char *thread_name, SignalThreadID tid)
 	{
-	public:
-		StackSignalTypes(SignalThreadID tid, SignalID sid, const A & value)
-		{
-			SIGNAL_TYPE[sid] = type_name<A>::value;
-			SIGNAL_THREAD[sid] = tid;
-			
-			new (SIGNAL_GLOAB_BUFFER + SIGNAL_GLOAB_BUFFER_SIZE * 0 + sid * SIGNAL_GLOAB_BUFFER_ELEM_SIZE) SignalBuffer<A>();
-			new (SIGNAL_GLOAB_BUFFER + SIGNAL_GLOAB_BUFFER_SIZE * 1 + sid * SIGNAL_GLOAB_BUFFER_ELEM_SIZE) SignalBuffer<A>();
-		}
-	};
+		SIGNAL_GLOAB_BUFFER[tid].thread_name = std::string(thread_name);
+	}
 
-	auto offset(SignalThreadID tid, SignalID sid)
+	template<typename A>
+	void subscribe_signal_once(SignalThreadID tid, const SignalNameID &snid, SignalType stype, const char *signal_name, const A & value)
 	{
-		return SIGNAL_GLOAB_BUFFER_SIZE * supp_occupied_buf_id[tid] + sid * SIGNAL_GLOAB_BUFFER_ELEM_SIZE;
+		// init once
+		// indepent thread access different index
+		const auto num = SIGNAL_GLOAB_BUFFER[tid].signal_num();
+		if(SIGNAL_GLOAB_BUFFER[tid].SUBSCRIBED_YET[num])
+		{
+			// todo: use match - enum to remove for ?
+			for(int t = 0; t < SIGNAL_THREAD_NUM; ++t)
+			{
+				if(tid == static_cast<SignalThreadID>(t))
+				{
+					SIGNAL_GLOAB_BUFFER[tid].subscribe_signal<A>(snid, stype, signal_name);		
+					// now signal_num changed		
+				}
+			}
+			SIGNAL_GLOAB_BUFFER[tid].SUBSCRIBED_YET[num] = false;
+		}
 	}
 
 	template<typename T>
-	void push_back(SignalThreadID tid, SignalID sid, const T &x)
+	void push_back(SignalThreadID tid, const SignalNameID &snid, const T &x)
 	{
-		auto offset_ = SIGNAL_GLOAB_BUFFER_SIZE * supp_occupied_buf_id[tid] + sid * SIGNAL_GLOAB_BUFFER_ELEM_SIZE;
-		// printf("push_back %d \n", offset_);
-		reinterpret_cast<SignalBuffer<T>*>(SIGNAL_GLOAB_BUFFER + offset_) -> push_back(x);
-		// auto tmp = reinterpret_cast<SignalBuffer<T>*>(SIGNAL_GLOAB_BUFFER + offset_);
+		const auto buf_idx = supp_occupied_buf_id[tid];
+		SIGNAL_GLOAB_BUFFER[tid].push_back(buf_idx, snid, x);
 		// printf("size %d \n", tmp->size());
-		
 	}
 
 	template<typename T>
 	auto get_buffer(SignalThreadID tid, SignalID sid)
 	{
-		auto offset_ = SIGNAL_GLOAB_BUFFER_SIZE * static_cast<BufferID>(1 - cons_instructed_buf_id[tid]) + sid * SIGNAL_GLOAB_BUFFER_ELEM_SIZE;
-		return reinterpret_cast<SignalBuffer<T>*>(SIGNAL_GLOAB_BUFFER + offset_);
+		const auto buf_idx = static_cast<BufferID>(1 - cons_instructed_buf_id[tid]);
+		return SIGNAL_GLOAB_BUFFER[tid].get_buffer<T>(buf_idx, sid);
 	}
-	template<typename T>
-	void reset_buffer(SignalThreadID tid, SignalID sid)
-	{
-		auto offset_ = SIGNAL_GLOAB_BUFFER_SIZE * static_cast<BufferID>(1 - cons_instructed_buf_id[tid]) + sid * SIGNAL_GLOAB_BUFFER_ELEM_SIZE;
-		new (SIGNAL_GLOAB_BUFFER + offset_) SignalBuffer<T>();
+// mutex not needed.
 
-	}
-	// add unknown signal type to treat yet uninitialized signal
 
-	// This must be called once for all threads which access before this class!!
-	void supplier_occupy_buf(SignalThreadID tid) {
-		//std::unique_lock<std::mutex> sync_lock(m_sync[tid]);  
-		m_sync[tid].lock();
-	}
 
-	//multiple mutex lock type: wait type or passthrough type
-std::condition_variable cv;
+/*
+	notify_ready : 이 버퍼 스왑을 수락  실제 버퍼 스왑과 데이터가 변함    수락 전에는 그 데이터 접근 금지
 
-	void set67867(SignalThreadID tid)
-	{
-		//std::unique_lock<std::mutex> sync_lock(m_sync[tid]);  
-		if(!data_supplied[tid])
-		{
-			data_supplied[tid] = true;
-			supp_occupied_buf_id[tid] = cons_instructed_buf_id[tid];			
-		}
-		//cv.notify_one();
-		
-		m_sync[tid].unlock();
-	}
-
-	void set7897(SignalThreadID tid)
-	{
-		BufferID cibid = supp_occupied_buf_id[tid];
-
-		std::unique_lock<std::mutex> sync_lock(m_sync[tid]);  
-		if(!data_supplied[tid])
-		{
-			data_supplied[tid] = true;
-			//supp_occupied_buf_id [tid] = static_cast<BufferID>(1 - cibid);	
-			supp_occupied_buf_id[tid] = cons_instructed_buf_id[tid];			
-			cv.notify_one();	
-		}
-
-	}
-
-	void set(SignalThreadID tid)
+	check_swap_done : 데이터 접근 전에 스왑 수락을 확인 후 되돌림 미수락시 스왑을 패스(공급 지연, 공급을 대기 x)
+	notify_swap : 스왑요청 작성   이다음 셋이 어떤 버퍼를 점유할지 지정
+*/
+	void notify_ready(SignalThreadID tid)
 	{
 		std::unique_lock<std::mutex> sync_lock(m_sync[tid]);  
 		if(!data_supplied[tid])
@@ -348,20 +317,15 @@ std::condition_variable cv;
 				accept_swap[tid] = true;
 				supp_occupied_buf_id[tid] = cons_instructed_buf_id[tid];	
 			}		
-			//cv.notify_one();	
 		}
-		printf("set: %d, %d, %d, %d\n", data_supplied[tid], need_swap[tid], accept_swap[tid], supp_occupied_buf_id[tid]);
+		// printf("set: %d, %d, %d, %d\n", data_supplied[tid], need_swap[tid], accept_swap[tid], supp_occupied_buf_id[tid]);
 	}
-/*
-	셋 : 이 버퍼 스왑을 수락  실제 버퍼 스왑과 데이터가 변함    수락 전에는 그 데이터 접근 금지
 
-	확인 : 데이터 접근 전에 스왑 수락을 확인 후 되돌림 미수락시 스왑을 패스(공급 지연, 공급을 대기 x)
-	스왑 : 스왑요청 작성   이다음 셋이 어떤 버퍼를 점유할지 지정
-*/
-	int16_t check()
+	// return bitflag which describes each thread's swap is done
+	int16_t check_swap_done()
 	{
 		int16_t result = 0;
-		for(int tid = 0; tid < num_thread; ++tid)
+		for(int tid = 0; tid < SIGNAL_THREAD_NUM; ++tid)
 		{
 			std::unique_lock<std::mutex> sync_lock(m_sync[tid]);  
 			if(need_swap[tid] && accept_swap[tid])
@@ -370,15 +334,15 @@ std::condition_variable cv;
 				accept_swap[tid] = false;	
 				result |= 1 << tid;
 			}
-			printf("check: %d, %d, %d, %d\n", data_supplied[tid], need_swap[tid], accept_swap[tid], static_cast<BufferID>(1 - cons_instructed_buf_id[tid]));
+			// printf("check: %d, %d, %d, %d\n", data_supplied[tid], need_swap[tid], accept_swap[tid], static_cast<BufferID>(1 - cons_instructed_buf_id[tid]));
 		}
 		
 		return result;
 	}
 
-	void swap()
+	void notify_swap()
 	{
-		for(int tid = 0; tid < num_thread; ++tid)
+		for(int tid = 0; tid < SIGNAL_THREAD_NUM; ++tid)
 		{
 			BufferID cibid = cons_instructed_buf_id[tid];
 
@@ -388,44 +352,17 @@ std::condition_variable cv;
 			{
 				data_supplied[tid] = false;
 				need_swap[tid] = true;
-				cons_instructed_buf_id [tid] = static_cast<BufferID>(1 - cibid);				
+				cons_instructed_buf_id[tid] = static_cast<BufferID>(1 - cibid);				
 			}
-			printf("swap: %d, %d, %d, %d\n", data_supplied[tid], need_swap[tid], accept_swap[tid], static_cast<BufferID>(1 - cons_instructed_buf_id[tid]));
+			// printf("swap: %d, %d, %d, %d\n", data_supplied[tid], need_swap[tid], accept_swap[tid], static_cast<BufferID>(1 - cons_instructed_buf_id[tid]));
 		}
 	}
 
-	int16_t get()
+	// used to check if all thread finished their job at least one cycle
+	int16_t is_signal_inited()
 	{
 		int16_t result = 0;
-		for(int tid = 0; tid < num_thread; ++tid)
-		{
-			bool new_data = false;
-			BufferID cibid = cons_instructed_buf_id[tid];
-			{
-				std::unique_lock<std::mutex> sync_lock(m_sync[tid]);
-				// cv.wait(sync_lock, []{ return ;});
-				//cv.notify_one();
-				new_data = data_supplied[tid];
-
-				if(new_data)
-				{
-					data_supplied[tid] = false;
-					// next set() will use this buffer
-					cons_instructed_buf_id[tid] = supp_occupied_buf_id [tid];
-				}
-			}
-			
-			result |= new_data ? 1 << tid : 0;
-		}
-
-		return result;
-	}
-
-	// used to check if all thread fienushes their job at least one cycle
-	int16_t get_read()
-	{
-		int16_t result = 0;
-		for(int tid = 0; tid < num_thread; ++tid)
+		for(int tid = 0; tid < SIGNAL_THREAD_NUM; ++tid)
 		{
 			bool new_data = false;
 			{
@@ -439,34 +376,126 @@ std::condition_variable cv;
 		return result;
 	}
 
-				// for(auto sid : THREAD_SIGNAL_ID[tid])
-				// 	memcpy(cibid);
 
+	// mutex not needed.
+	auto get_signal_num(SignalThreadID tid)
+	{
+		return SIGNAL_GLOAB_BUFFER[tid].signal_num();
+	}
+
+	SignalType get_stype(SignalThreadID tid, SignalID sid)
+	{
+		return SIGNAL_GLOAB_BUFFER[tid].get_stype(sid);
+	}
+	std::string get_sname(SignalThreadID tid, SignalID sid)
+	{
+		return SIGNAL_GLOAB_BUFFER[tid].get_sname(sid);
+	}
+	std::string get_tname(SignalThreadID tid)
+	{
+		return SIGNAL_GLOAB_BUFFER[tid].thread_name;
+	}
+	// template<typename F>
+	// void foreach_signal(SignalThreadID tid, const F &f)
+	// {
+	// 	const auto len = SIGNAL_GLOAB_BUFFER[tid].signal_num();
+	// 	for(SignalID sid = 0; sid < len; ++sid)
+	// 	{
+	// 		f();
+	// 	}
+	// }
 
 
 private:
 	enum BufferID {
 		m_buffer0 = 0,
-		m_buffer1 = 1,
-		m_one = 1
+		m_buffer1 = 1
 	};
 
-	static constexpr const int num_thread = 1;
-	std::array<std::mutex, num_thread> m_sync;
+
+	std::array<std::mutex, SIGNAL_THREAD_NUM> m_sync;
 
 	// local
 	// current buffer id which occupied by supplier
-	std::array<BufferID, num_thread>  supp_occupied_buf_id{m_buffer0};
+	std::array<BufferID, SIGNAL_THREAD_NUM>  supp_occupied_buf_id{m_buffer0};
 
 	//shared
-	std::array<BufferID, num_thread>  cons_instructed_buf_id{m_buffer0};
-	std::array<bool, num_thread>  data_supplied{true};
+	// next buffer id which supplier will use
+	std::array<BufferID, SIGNAL_THREAD_NUM>  cons_instructed_buf_id{m_buffer0};
+	std::array<bool, SIGNAL_THREAD_NUM>  data_supplied{true};
+	std::array<bool, SIGNAL_THREAD_NUM>  need_swap{false};
+	std::array<bool, SIGNAL_THREAD_NUM>  accept_swap{false};
 
-	std::array<bool, num_thread>  need_swap{false};
-	std::array<bool, num_thread>  accept_swap{false};
+	// std::array<std::array<SignalID, SIGNAL_NUM>, THREAD_SIGNAL_ID>  THREAD_SIGNAL_ID;
 
-	std::array<std::array<SignalID, SIGNAL_NUM>, num_thread>  THREAD_SIGNAL_ID;
 
+	// mutex not needed.
+	class ThreadBuffer
+	{
+	public:
+		// add new signal to table
+		template<typename A>
+		void subscribe_signal(const SignalNameID &snid, const SignalType &stype, const char *signal_name)
+		{
+			// network don't access SIGNAL_GLOAB_BUFFER yet
+			const auto len = signal_num();
+
+			SIGNAL_NAME.emplace_back(signal_name);
+			SIGNAL_TYPE.push_back(stype);
+			NAMEID_TO_SIGNALID[snid] = len;
+
+			// todo: remove unecessary initialization
+			signal_2buffer[0].resize(len + 1);
+			signal_2buffer[1].resize(len + 1);
+
+			// actual init here
+			new (&(signal_2buffer[0][len + 1])) SignalBuffer<A>();
+			new (&(signal_2buffer[1][len + 1])) SignalBuffer<A>();	
+		}
+
+		template<typename T>
+		void push_back(const BufferID &bid, const SignalNameID &snid, const T &x)
+		{
+			const SignalID index = NAMEID_TO_SIGNALID[snid];
+			reinterpret_cast<SignalBuffer<T>*>(&(signal_2buffer[bid][index])) -> push_back(x);
+		}
+		int signal_num()
+		{	
+			return SIGNAL_TYPE.size();
+		}
+
+		template<typename T>
+		auto get_buffer(const BufferID &bid, const SignalID &sid)
+		{
+			// mutex not needed. as we called SignalSync.check()
+			return reinterpret_cast<SignalBuffer<T>*>(&(signal_2buffer[bid][sid]));
+		}
+		SignalType get_stype(const SignalID &sid)
+		{	
+			return SIGNAL_TYPE[sid];
+		}
+		std::string get_sname(const SignalID &sid)
+		{	
+			return SIGNAL_NAME[sid];
+		}
+
+		std::string thread_name{"SIGNAL_INIT_LOG_NOT_CALLED"};
+		// std::vector<std::tuple<SignalID, SignalType>> SIGNAL_ID{};
+		// type can be differ thread by thread : such as template 
+		// so here, not global
+		std::array<bool, SIGNAL_NAME_NUM> SUBSCRIBED_YET{true};
+		std::vector<std::string> SIGNAL_NAME;
+		std::vector<SignalType> SIGNAL_TYPE;
+
+		std::array<SignalID, SIGNAL_NAME_NUM> NAMEID_TO_SIGNALID;
+		
+	private:
+		// !! NEVER access this SignalBuffer<int64_t> directly.
+		std::vector<SignalBuffer<int64_t>> signal_2buffer[2]{};
+	};
+
+	// used to check SIGNAL_LOG() has been called with (thread_id, signal_id)
+	ThreadBuffer SIGNAL_GLOAB_BUFFER[SIGNAL_THREAD_NUM];
 };
 
 
@@ -474,18 +503,14 @@ private:
 SignalSync SSYNC;
 
 #define SIGNAL_INIT_LOG_(TID) \
-	SIGNAL_THREAD_ID = TID;
-
-#define SIGNAL_INIT_LOG() \
-	SSYNC.supplier_occupy_buf(SIGNAL_THREAD_ID);
-
+	SIGNAL_THREAD_ID = SignalThreadID::TID;
 
 #define SIGNAL_LOG(ID, VALUE) \
-	static SignalSync::StackSignalTypes _##ID {SIGNAL_THREAD_ID, SignalID::ID, VALUE}; \
-	SSYNC.push_back(SIGNAL_THREAD_ID, SignalID::ID, VALUE); 
+	SSYNC.subscribe_signal_once(SIGNAL_THREAD_ID, SignalNameID::ID, type_name<decltype(VALUE)>::value, #ID, VALUE); \
+	SSYNC.push_back(SIGNAL_THREAD_ID, SignalNameID::ID, VALUE); 
 
 #define SIGNAL_SYNC_LOG() \
-	SSYNC.set(SIGNAL_THREAD_ID); 
+	SSYNC.notify_ready(SIGNAL_THREAD_ID); 
 
 
 
@@ -495,21 +520,32 @@ SignalSync SSYNC;
 
 
 
-void pack(flexbuffers::Builder &builder, SignalThreadID tid, SignalID sid, SignalType stype)
+void pack(flexbuffers::Builder &builder, SignalThreadID tid, SignalID sid)
 {
 
 #define FLEXBUFFER(TYPE, type) \
 	builder.Vector([&]() \
 	{ \
 		auto buf = SSYNC.get_buffer<type>(tid, sid); \
-		for (int i = 0; i < buf->size(); i++) {\
+		auto size = buf->size(); \
+		for (int i = 0; i < size; i++) {\
 			const auto a = (*buf).pop_front(); \
-			printf("%d, ", a); \
+			builder.TYPE(a); 	\
+			builder.TYPE(a); 	\
+			builder.TYPE(a); 	\
+			builder.TYPE(a); 	\
+			builder.TYPE(a); 	\
+			builder.TYPE(a); 	\
+			builder.TYPE(a); 	\
+			builder.TYPE(a); 	\
+			builder.TYPE(a); 	\
 			builder.TYPE(a); 	\
 		} \
-		printf("\n"); \
 	});
 
+//			printf("%d, ", a); printf("\n"); 
+
+	SignalType stype = SSYNC.get_stype(tid, sid);
 
 	switch (stype)
 	{
@@ -538,6 +574,33 @@ void pack(flexbuffers::Builder &builder, SignalThreadID tid, SignalID sid, Signa
 
 
 
+/*
+<-
+vector
+	vector
+		thread_name
+	vector
+		vector
+			signal_name
+		vector
+			signal_type
+
+->
+	vector(size == thread_num)
+		int32
+			signal_bitflag
+<-
+vector
+	Int32
+		thread_flag
+	vector
+		Int32
+			signal_flag
+		vector
+			value
+
+- thet compare thread_flag and signal_flag with their own
+*/
 
 
 // The logic I use is to connect than loop. This makes sense to me, in that until you connect successfully looping serves little purpose. I also use connect_async and set a connect=true flag in the on_connect callback, so that I know when it is possible for loop to do any work.
@@ -602,7 +665,7 @@ assume there be supplied data
 				// wait for SIGNAL_TYPE_THRD filling
 		int16_t first = 0;
 		while(first == 0) {
-			first |= SSYNC.get_read();
+			first |= SSYNC.is_signal_inited();
 			std::this_thread::sleep_for(std::chrono::milliseconds(1));
 		}
 		printf("SIGNAL_TYPE_THRD filled  \n");
@@ -633,7 +696,7 @@ assume there be supplied data
 		 * This call makes the socket connection only, it does not complete the MQTT
 		 * CONNECT/CONNACK flow, you should use mosquitto_loop_start() or
 		 * mosquitto_loop_forever() for processing net traffic. */
-		rc = mosquitto_connect(mosq, "192.168.0.29", 9884, 60);
+		rc = mosquitto_connect(mosq, "192.168.0.7", 9884, 60);
 		if (rc != MOSQ_ERR_SUCCESS)
 		{
 			mosquitto_destroy(mosq);
@@ -649,15 +712,28 @@ assume there be supplied data
 		}
 
 
-		auto dataRate = std::chrono::milliseconds(1);
+		auto dataRate = std::chrono::microseconds(7000);
+
+		auto s0 = std::chrono::high_resolution_clock::now();
+
 		// std::chrono::high_resolution_clock::time_point start = std::chrono::high_resolution_clock::now();
+		int a = 0;
 
 		while (true)
 		{
 			auto start = std::chrono::high_resolution_clock::now();
 
-			if(conn.is_ready())
+			if(conn.is_ready()) {
 				publish_sensor_data(mosq);
+				// ++a;
+				// auto d = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - s0);
+				// if (d > std::chrono::milliseconds(1000))
+				// {
+				// 	printf("\n\n\n\n done %d\n", a);
+				// 	std::this_thread::sleep_for(std::chrono::milliseconds(100));
+				// 	break;
+				// }
+			}
 
 
 			auto dt = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - start);
@@ -678,22 +754,32 @@ private:
 
 		//auto result = SSYNC.get();
 
-		auto result = SSYNC.check();
+		auto buffer_ready = SSYNC.check_swap_done();
 
-
-		int32_t out_flag = conn.get_type();
+		// todo: copy or mutex?
+		const std::array<int32_t, SIGNAL_THREAD_NUM> out_flag = conn.get_type();
+		
 
 		flexbuffers::Builder builder;
 		builder.Vector([&]() {
-			builder.Int(out_flag);
-			
-			for(int sid = 0; sid < SIGNAL_NUM; ++sid)
+
+			builder.Int(buffer_ready);
+
+			for(int tid = 0; tid < SIGNAL_THREAD_NUM; ++tid)
 			{
-				auto tid = SIGNAL_THREAD[sid];
-				if (result & 1 << tid && out_flag & 1 << sid)
+				const auto signal_out_flag = out_flag[tid];
+
+				if (!	(buffer_ready & 1 << tid && signal_out_flag != 0)) 
+					continue;
+
+
+				const auto sig_num = SSYNC.get_signal_num(static_cast<SignalThreadID>(tid));
+				for(int sid = 0; sid < sig_num; ++sid)
 				{
-					
-					pack(builder, tid, static_cast<SignalID>(sid), SIGNAL_TYPE[sid]);
+					if (signal_out_flag & 1 << sid)
+					{
+						pack(builder, static_cast<SignalThreadID>(tid), static_cast<SignalID>(sid));
+					}
 				}
 			}
 		});
@@ -727,7 +813,7 @@ private:
 		// 	builder.TYPE((*buf).pop_front()); 	
 
 
-		SSYNC.swap();
+		SSYNC.notify_swap();
 
 		rc = mosquitto_publish(mosq, NULL, conn.device_id.c_str(), K.size(), K.data(), 0, false);
 		if (rc != MOSQ_ERR_SUCCESS)
@@ -832,16 +918,17 @@ private:
 		{
 			printf("client sent signal list.\n");
 			if (connn.cp_advance_done()) {
-				int32_t sid = flexbuffers::GetRoot(received_buffer).AsInt32();
+				auto signal_flagv = flexbuffers::GetRoot(received_buffer).AsVector();
 
-				printf("requested signal list : %d : ", sid);
-				for (size_t j = 0; j < SIGNAL_NUM; j++) {
-					printf("%d", (bool)(sid & 1 << j));
+				std::array<int32_t, SIGNAL_THREAD_NUM> signal_flag;
+
+				for (size_t sf = 0; sf < SIGNAL_THREAD_NUM; ++sf) {
+					signal_flag[sf] = signal_flagv[sf].AsInt32();
+					// printf("%d", (bool)(sid & 1 << j));
 				}
-				printf("\n");
-
+				// printf("\n");
 				
-				connn.set_type(sid);
+				connn.set_type(signal_flag);
 			}
 		}
 	}
@@ -891,12 +978,12 @@ private:
 
 
 
-		void set_type(int32_t rec_type)
+		void set_type(const std::array<int32_t, SIGNAL_THREAD_NUM> &rec_type)
 		{
 			mt.set(rec_type);
 		}
 
-		int32_t get_type()
+		std::array<int32_t, SIGNAL_THREAD_NUM> get_type()
 		{
 			return mt.get();
 		}
@@ -925,33 +1012,52 @@ private:
 
 				
 
-					for(int sid = 0; sid < SIGNAL_NUM; ++sid)
-					{
-						std::cout << SIGNAL_NAME[sid] << ", ";
-					}
-					std::cout << std::endl;
+			// for(int sid = 0; sid < SIGNAL_NUM; ++sid)
+			// {
+			// 	std::cout << SIGNAL_NAME[sid] << ", ";
+			// }
+			// std::cout << std::endl;
 
 
 			builder.Vector([&]() {
+
+				// name of thread
 				builder.Vector([&]()
 				{
-					for(int sid = 0; sid < SIGNAL_NUM; ++sid)
+					for(int tid = 0; tid < SIGNAL_THREAD_NUM; ++tid)
 					{
-						builder.String(SIGNAL_NAME[sid]);
-					}
-				});
-				// builder.Vector(SIGNAL_NAME, (size_t)SIGNAL_NUM);
-				/*
-					!!! THIS MAY BE UNSAFE READ !!!
-				*/
-				builder.Vector([&]()
-				{
-					for(int sid = 0; sid < SIGNAL_NUM; ++sid)
-					{
-						builder.Int(SIGNAL_TYPE[sid]);
+						builder.String(SSYNC.get_tname(static_cast<SignalThreadID>(tid)));
 					}
 				});
 
+				// vector of signal
+				builder.Vector([&]()
+				{
+					for(int tid = 0; tid < SIGNAL_THREAD_NUM; ++tid)
+					{
+						const auto len = SSYNC.get_signal_num(static_cast<SignalThreadID>(tid));
+						// vector of s_sname
+						builder.Vector([&]()
+						{
+							for(int sid = 0; sid < len; ++sid)
+							{
+								builder.String(SSYNC.get_sname(static_cast<SignalThreadID>(tid), static_cast<SignalID>(sid)));
+							}
+						});
+						// vector 0f s_type
+						builder.Vector([&]()
+						{
+							for(int sid = 0; sid < len; ++sid)
+							{
+								builder.Int(SSYNC.get_stype(static_cast<SignalThreadID>(tid), static_cast<SignalID>(sid)));
+							}
+						});
+					}
+				});
+
+				/*
+					!!! THIS MAY BE UNSAFE READ !!!
+				*/
 			});
 
 			builder.Finish();
@@ -995,21 +1101,21 @@ private:
 				std::lock_guard<std::mutex> mm(m);
 				return receiv;
 			}
-			void set(int32_t rec_type)
+			void set(const std::array<int32_t, SIGNAL_THREAD_NUM> &rec_type)
 			{
 				std::lock_guard<std::mutex> mm(m);
-				signal_type = rec_type;
+				signal_flag = rec_type;
 				receiv = true;
 			}
-			int32_t get()
+			std::array<int32_t, SIGNAL_THREAD_NUM> get()
 			{
 				std::lock_guard<std::mutex> mm(m);
-				return signal_type;
+				return signal_flag;
 			}
 		private:
 
 			std::mutex m;
-			int32_t signal_type{0};
+			std::array<int32_t, SIGNAL_THREAD_NUM> signal_flag{0};
 			bool receiv {false};
 		};
 		MessageType mt;
@@ -1042,8 +1148,9 @@ void con()
 
 void supl()
 {
-	SIGNAL_INIT_LOG_(s_no_name_thread);
+	SIGNAL_INIT_LOG_(Suplier_thread);
 	int buffer[16]{0};
+	int aa = 0;
 
 	while (true)
 	{
@@ -1053,14 +1160,14 @@ void supl()
 		
 		SIGNAL_LOG(wefn, 1);
 		buffer[0] = (buffer[0]+1) % 120;
-		printf("%d ", buffer[0]);
-		SIGNAL_LOG(dvweb, buffer[0]);
+		// printf("%d ", buffer[0]);
+		SIGNAL_LOG(dvweb, int(8 * sin((++aa)*0.01)));
 		SIGNAL_LOG(greht, 2.0f);
 
 		SIGNAL_LOG(fewfg, -120);
 		
 		SIGNAL_LOG(fsdfsf, 543);
-	std::this_thread::sleep_for(std::chrono::microseconds(100));
+		std::this_thread::sleep_for(std::chrono::microseconds(1000));
 		SIGNAL_SYNC_LOG();
 
 		

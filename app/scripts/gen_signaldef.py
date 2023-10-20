@@ -18,8 +18,12 @@ def list_files_with_extensions(root_dir, extensions):
 
 root_directory = sys.argv[1]
 extensions = ['.h', '.cpp', '.hpp']
+
 statement = re.compile(r'SIGNAL_LOG\s*\(\s*([a-zA-Z0-9_]+)\s*,')#re.compile('\s*\bSIGNAL_LOG\s*\(\s*([a-zA-Z0-9_]+)\s*,')
 signal_name = []
+
+statement_thread = re.compile(r'SIGNAL_INIT_LOG_\s*\(\s*([a-zA-Z0-9_]+)\s*\)')#re.compile('\s*\bSIGNAL_LOG\s*\(\s*([a-zA-Z0-9_]+)\s*,')
+thread_name = []
 
 files = list_files_with_extensions(root_directory, extensions)
 
@@ -27,27 +31,49 @@ files = list_files_with_extensions(root_directory, extensions)
 
 for file in files:
     with open(file, 'r') as file_s:
-        result = statement.findall(file_s.read())
+        src = file_s.read()
+        result = statement.findall(src)
         if result:
             signal_name += result
 
+        result_t = statement_thread.findall(src)
+        if result_t:
+            thread_name += result_t
 
-if 'ID' in signal_name:
-    signal_name.remove('ID')
+
+
+if 'SNID' in signal_name:
+    signal_name.remove('SNID')
+
+if 'TID' in thread_name:
+    thread_name.remove('TID')
+
 
 if len(signal_name) == 0:
     signal_name = ["SIGNAL_EMPTY"]
 
+if len(thread_name) == 0:
+    thread_name += ["THREAD_EMPTY"]
+
+
+# thread_name has defaultly two element
+thread_name += ["err_not_inited_thread"]
+
+
 print(signal_name)
+print(thread_name)
+
 
 with open(sys.argv[2] + '/signal_list.h', 'w') as tmp_h:
     s = '#ifndef __SIGNAL_LIST_H__\n' + \
         '#define __SIGNAL_LIST_H__\n\n' + \
-        'static constexpr int8_t SIGNAL_NUM = ' + str(len(signal_name)) + ';\n' + \
-        'enum SignalID : int8_t \n{\n\t' + ',\n\t'.join(signal_name) + '\n};\n' + \
-        'enum SignalThreadID : int8_t \n{\n\t' + 's_no_name_thread = 0' + '\n};\n' + \
-        'static constexpr const char *SIGNAL_NAME[SIGNAL_NUM] \n{\n\t' + ',\n\t'.join(['"' + s + '"' for s in signal_name]) + '\n};\n' + \
-        'static SignalType SIGNAL_TYPE[SIGNAL_NUM]{t_yet};\n\n' + \
-        'static SignalThreadID SIGNAL_THREAD[SIGNAL_NUM]{s_no_name_thread};\n\n' + \
-        '#endif /* __SIGNAL_LIST_H__ */'
+        '// Python preprocessor used to remove thread dependency while initialization step.\n\n' + \
+        'static constexpr int8_t SIGNAL_NAME_NUM = ' + str(len(signal_name)) + ';\n' + \
+        'static constexpr int8_t SIGNAL_THREAD_NUM = ' + str(len(thread_name) - 1) + ';\n' + \
+        'enum SignalNameID : int8_t \n{\n\t' + ',\n\t'.join(signal_name) + '\n};\n' + \
+        'enum SignalThreadID : int8_t \n{\n\t' + ',\n\t'.join(thread_name) + '\n};\n' + \
+        'static constexpr const char *SIGNAL_NAME[SIGNAL_NAME_NUM] \n{\n\t' + ',\n\t'.join(['"' + s + '"' for s in signal_name]) + '\n};\n' + \
+        'static constexpr const char *SIGNAL_THREAD_NAME[SIGNAL_THREAD_NUM + 1] \n{\n\t' + ',\n\t'.join(['"' + s + '"' for s in thread_name]) + '\n};\n' + \
+        'typedef int8_t SignalID;\n' + \
+        '#endif /* __SIGNAL_LIST_H__ */' 
     tmp_h.write(s)

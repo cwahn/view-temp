@@ -39,56 +39,9 @@ RtPlot1 audio_plot{"audio plot", -1, -1, &raw_audio};
 
     // Client C;
     // C.init();
-printf("fgfdhdyesrg\n");
-    // mainX();
-  SignalBuffer<int> aa;
-  	int buffer  = 0;
 
-	while (buffer<12)
-	{
-	//	SIGNAL_INIT_LOG();
-
-		
-
-		buffer = (buffer+1);
-        aa.push_back(buffer);
-        printf("%d\n", aa.size());
-    
-    }
-
-printf("size is %d\n", aa.size());
-
-    for(int i = 0; i < aa.size(); ++i)
-    {
-        aa.pop_front();
-        printf("%d\n", aa.size());
-    }
-printf("size is %d\n", aa.size());
-
-
-
-
-printf("fgfdhdyesrg\n");
-
-buffer  = 0;
-	while (buffer<12)
-	{
-		buffer = (buffer+1);
-        aa.push_back(buffer);
-        printf("%d\n", aa.size());
-    }
-printf("size is %d\n", aa.size());
-    for(int i = 0; i < aa.size(); ++i)
-    {
-        aa.pop_front();
-        printf("%d\n", aa.size());
-    }
-
-printf("size is %d\n", aa.size());
-
-
-                return 0;
-
+    mainX();
+ 
 
 
 

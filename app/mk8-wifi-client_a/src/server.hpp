@@ -127,7 +127,7 @@ public:
 		mosquitto_subscribe_callback_set(mosq, on_subscribe);
 		mosquitto_message_callback_set(mosq, on_message);
 
-		rc = mosquitto_connect(mosq, "192.168.0.29", 9884, 60);
+		rc = mosquitto_connect(mosq, "192.168.0.7", 9884, 60);
 		if(rc != MOSQ_ERR_SUCCESS){
 			mosquitto_destroy(mosq);
 			fprintf(stderr, "Error: %s\n", mosquitto_strerror(rc));
@@ -384,7 +384,7 @@ private:
 				
 
 				for (size_t j = 0; j < y.size(); j++) {
-					stype.push_back(y[j].AsInt32());
+					stype.push_back(static_cast<SignalType>(y[j].AsInt32()));
 					std::cout << y[j].AsInt32();
 				}
 				std::cout << std::endl;
@@ -414,8 +414,6 @@ private:
 				return signal_type;
 			}
 
-
-
 			void set_ids(const std::vector<int> &sid)
 			{
 				std::lock_guard<std::mutex> mm(m);
@@ -432,7 +430,7 @@ private:
 			int32_t signal_type{1<<1};
 
 			std::vector<std::string> sname;
-			std::vector<int> stype;
+			std::vector<SignalType> stype;
 
 
 			bool receiv {false};

@@ -37,14 +37,18 @@ start imgui
 
 std::vector<std::string> sname;
 std::vector<SignalType> stype;
-std::vector<RtDataFixedRate<120*10>> Data{{"plot", 120.}};
+std::vector<RtDataFixedRate<120*10>> Data{};
 
 
+RtDataDynamicRate<120*10> ddd{"as"};
+RtPlot1 rt_plot{"rt_plot", -1, -1, &ddd};
 
 
 // Main code
 int main(int, char **)
 {
+
+   
 
     auto nametype_callback = [](const std::vector<std::string> &sname_, const std::vector<SignalType> &stype_)
     {
@@ -52,62 +56,63 @@ int main(int, char **)
         stype = stype_;
     };
 
-    auto signal_callback = [](int sid, const flexbuffers::Vector &root)
+    auto signal_callback = [](const flexbuffers::Vector &root)
     {
 
 
-				#define FLEXBUFFER(TYPE, type) \
-					for (int j = 0; j < vectorn.size(); j++) {\
-						const auto a = vectorn[j].AsTYPE(); \
-						printf("%d, ", a); \
-					} \
-					printf("\n"); \
+				// #define FLEXBUFFER(TYPE, type) \
+				// 	for (int j = 0; j < vectorn.size(); j++) {\
+				// 		const auto a = vectorn[j].AsTYPE(); \
+				// 		printf("%d, ", a); \
+				// 	} \
+				// 	printf("\n"); \
 
 
-				auto result = root[0].AsInt32();
-				int index = 0;
-				for(int i = 0; i < 32; ++i)
-				{
-					if (result & 1 << i)// && out_flag & 1 << sid)
-					{
-						auto vectorn = root[index++].AsVector();
+				// auto result = root[0].AsInt32();
+				// int index = 0;
+				// for(int i = 0; i < 32; ++i)
+				// {
+				// 	if (result & 1 << i)// && out_flag & 1 << sid)
+				// 	{
+				// 		auto vectorn = root[index++].AsVector();
 
-						switch (stype)
-						{
-							case t_bool:
-							{
-								FLEXBUFFER(Bool, bool);
-								break;
-							}
-							case t_float:
-							{
-								FLEXBUFFER(Float, float);
-								break;
-							}
-							case t_double:
-							{
-								FLEXBUFFER(Double, double);
-								break;
-							}
-							case t_int:
-							{
-								FLEXBUFFER(Int32, int);
-								break;
-							}
-						}
+				// 		switch (stype)
+				// 		{
+				// 			case t_bool:
+				// 			{
+				// 				FLEXBUFFER(Bool, bool);
+				// 				break;
+				// 			}
+				// 			case t_float:
+				// 			{
+				// 				FLEXBUFFER(Float, float);
+				// 				break;
+				// 			}
+				// 			case t_double:
+				// 			{
+				// 				FLEXBUFFER(Double, double);
+				// 				break;
+				// 			}
+				// 			case t_int:
+				// 			{
+				// 				FLEXBUFFER(Int32, int);
+				// 				break;
+				// 			}
+				// 		}
 						
-					}
-				}
+				// 	}
+				// }
 
 
-
-        auto vectorn = root[sid].AsVector();
-
-        for (size_t j = 0; j < vectorn.size(); j++) {
-            printf("%d, ", vectorn[j].AsInt32());
-            Data[sid].push_now( vectorn[j].AsInt32());
+        auto out_flag = root[0].AsInt32();
+        auto vectorn = root[1].AsVector();
+        efp::Vector<int> K;
+        for (size_t j = 0; j < vectorn.size()/10; j++) {
+            //printf("%d, ", vectorn[j*10].AsInt32());
+            K.push_back(vectorn[j*10].AsInt32());
         }
-        printf("\n");
+        ddd.push_sequence(K);
+        //printf("\n");
     };
 
 //     RtDataDynamicRate<1024> raw_audio{"raw audio"};
@@ -137,28 +142,28 @@ int main(int, char **)
 
 
 
-    // auto init_task = [&](ImGuiIO &io)
-    // {
-    //     using namespace ImGui;
-    // };
+    auto init_task = [&](ImGuiIO &io)
+    {
+        using namespace ImGui;
+    };
 
-    // auto loop_task = [&](ImGuiIO &io)
-    // {
-    //     using namespace ImGui;
-    //     using namespace ImPlot;
+    auto loop_task = [&](ImGuiIO &io)
+    {
+        using namespace ImGui;
+        using namespace ImPlot;
 
-    //     window("Audio", [&]()
-    //            { xd_plot.plot(); });
+        window("Audio", [&]()
+               { rt_plot.plot(); });
 
-    //     ImGui::ShowDemoWindow();
-    // };
+        ImGui::ShowDemoWindow();
+    };
 
-    // run_gui(
-    //     1920,
-    //     1080,
-    //     "Ars Vivendi",
-    //     init_task,
-    //     loop_task);
+    run_gui(
+        1920,
+        1080,
+        "Ars Vivendi",
+        init_task,
+        loop_task);
 
 
 
