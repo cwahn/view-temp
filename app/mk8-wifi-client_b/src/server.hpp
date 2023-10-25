@@ -13,50 +13,6 @@
 #include "efp.hpp"
 
 #include <stdio.h>
-// #include <stdlib.h>
-
-// #include <unistd.h>
-
-/*
-	signal monitoring:
-	user-side : 1 send, 1 receive
-	device-side : 1 send, 1 receive
-
-	user send 1byte data which describes signal on/off
-	device recives description and packkage signal with thi byte and send
-	user matchs own byte and recived byte. if matches, accept or discard
-
-	OS independent encode/decode????
-
-
-	data_supplier(thread0):
-		local buffer[]
-		while processing
-			buffer.pushback()
-			buffer.pushback()
-			..
-
-			..					-> done at almost constant time (push_back all candidate signal)
-			globaldata.set(buffer) -> globaldata free
-
-	data_trans(thread1):
-		local buffer[]
-
-		initial_communication()  // block while something?
-
-		while transprocce
-			if get_if_supplied(buffer) 	> globaldata free (rapid or slow)
-				wait(1ms)
-				continue
-
-			get_signal_mask()
-			send(encode(buffer))
-
-			..					-> done at variable time
-
-		trans() may tae lone time and miss many supplied data accordig to network state,
-		but processing not hang on trans()..
-*/
 
 
 enum SignalType : int16_t
@@ -449,8 +405,8 @@ private:
 			signal_2buffer[1].resize(len + 1);
 
 			// actual init here
-			new (&(signal_2buffer[0][len + 1])) SignalBuffer<A>();
-			new (&(signal_2buffer[1][len + 1])) SignalBuffer<A>();	
+			new (&(signal_2buffer[0][len])) SignalBuffer<A>();
+			new (&(signal_2buffer[1][len])) SignalBuffer<A>();	
 		}
 
 		template<typename T>
@@ -498,8 +454,10 @@ private:
 	ThreadBuffer SIGNAL_GLOAB_BUFFER[SIGNAL_THREAD_NUM];
 };
 
-
-
+/*
+SignalNameID : when push_back, where to save value?  str compare of id table...
+	todo: replace this with real signal id string 
+*/
 SignalSync SSYNC;
 
 #define SIGNAL_INIT_LOG_(TID) \
@@ -586,7 +544,7 @@ vector
 			signal_type
 
 ->
-	vector(size == thread_num)
+	vector(size = thread_num)
 		int32
 			signal_bitflag
 <-
@@ -696,7 +654,7 @@ assume there be supplied data
 		 * This call makes the socket connection only, it does not complete the MQTT
 		 * CONNECT/CONNACK flow, you should use mosquitto_loop_start() or
 		 * mosquitto_loop_forever() for processing net traffic. */
-		rc = mosquitto_connect(mosq, "192.168.0.7", 9884, 60);
+		rc = mosquitto_connect(mosq, "192.168.0.29", 9884, 60);
 		if (rc != MOSQ_ERR_SUCCESS)
 		{
 			mosquitto_destroy(mosq);
@@ -828,11 +786,6 @@ private:
 	/* Callback called when the client receives a CONNACK message from the broker. */
 	static void on_connect(struct mosquitto *mosq, void *obj, int reason_code)
 	{
-		Connection &connn = *(Connection *)obj;
-		/* Print out the connection result. mosquitto_connack_string() produces an
-		* appropriate string for MQTT v3.x clients, the equivalent for MQTT v5.0
-		* clients is mosquitto_reason_string().
-		*/
 		printf("on_connect: %s\n", mosquitto_connack_string(reason_code));
 		if (reason_code != 0)
 		{
@@ -840,7 +793,10 @@ private:
 			* retrying in this example, so disconnect. Without this, the client
 			* will attempt to reconnect. */
 			// mosquitto_disconnect(mosq);
+			return;
 		}
+		
+		Connection &connn = *(Connection *)obj;
 
 		int rc;
 		rc = mosquitto_subscribe(mosq, NULL, (connn.device_id + "/ca").c_str(), 2);
