@@ -5,6 +5,8 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 
+#include <functional>
+
 
 #include "mosquitto.h"
 
@@ -80,6 +82,11 @@ live -> <-live
 ok-> <- ok
 */
 
+template<typename T, typename... Args>
+std::unique_ptr<T> make_unique(Args&&... args) {
+    return std::unique_ptr<T>(new T(std::forward<Args>(args)...));
+}
+
 
 enum SignalType : int16_t
 {
@@ -87,15 +94,42 @@ enum SignalType : int16_t
 	t_bool,
 	t_float,
 	t_double,
-	t_int
+	t_int,
+	t_int64
 };
 
+typedef int8_t SignalID;
+typedef int8_t SignalThreadID;
 
-template <typename F1, typename F2>
+
+
+			class ThreadSignal
+			{
+			public:
+				std::string thread_name;
+				std::vector<std::string> signal_name;
+				std::vector<SignalType> signal_type;
+			};
+
+
+
+
+
+
+// typedef void (*signal_callback_t)(const flexbuffers::Vector &);
+
+// typedef void (*NametypeCallbackType_t)(const std::vector<ThreadSignal>&);
+
+template<
+	typename F1 = std::function<void(const flexbuffers::Vector &)>,
+	typename F2 = std::function<void(const flexbuffers::Vector &)>>
 class ClientViewer
 {
 public:	
-	ClientViewer(std::string client_id_, std::string device_id_, F1 &nametype_callback, F2 &signal_callback) :
+	
+
+	//template<typename F1,typename F2>
+	ClientViewer(std::string client_id_, std::string device_id_, F1 nametype_callback, F2 signal_callback) :
 		conn(client_id_, device_id_, nametype_callback, signal_callback)
 	{
 			
@@ -127,7 +161,7 @@ public:
 		mosquitto_subscribe_callback_set(mosq, on_subscribe);
 		mosquitto_message_callback_set(mosq, on_message);
 
-		rc = mosquitto_connect(mosq, "192.168.0.7", 9884, 60);
+		rc = mosquitto_connect(mosq, "192.168.0.29", 9884, 60);
 		if(rc != MOSQ_ERR_SUCCESS){
 			mosquitto_destroy(mosq);
 			fprintf(stderr, "Error: %s\n", mosquitto_strerror(rc));
@@ -142,6 +176,10 @@ public:
 		}
 	}
 
+void publish_slist(const std::vector<std::vector<SignalID>> &slist)
+	{
+		conn.publish_slist(mosq, slist);
+	}
 
 
 private:
@@ -259,14 +297,14 @@ private:
 			printf("device sent signal list.\n");
 			if (connn.cp_advance_done()) {
 				auto root = flexbuffers::GetRoot(received_buffer).AsVector();
-				auto sname = root[0].AsVector();
-				auto stype = root[1].AsVector();
 
-				connn.mt.set(sname, stype);
+				// connn.mt.set(root);
 
-				connn.nametype_callback(connn.mt.get_name(), connn.mt.get_type());
-
-				connn.publish_slist(mosq);
+				connn.nametype_callback(root);//connn.mt.get_list());
+				
+				// todo: not be here
+				// connn.publish_slist(mosq);
+				// dont init device from here. just set device init state as "sned noting"
 			}
 		}
 		else if (strcmp(msg->topic, connn.device_id.c_str()) == 0)
@@ -283,10 +321,10 @@ private:
 
 
 
-	// template <typename F>
 	class Connection
 	{
 	public:
+		
 		Connection(std::string client_id_, std::string device_id_, F1 &nametype_callback_, F2 &callback) :
 			client_id(client_id_),  device_id(device_id_), nametype_callback(nametype_callback_), out_callback{callback}
 		{
@@ -353,10 +391,25 @@ private:
 			}
 		}
 
-		void publish_slist(struct mosquitto *mosq)
+		// todo: fix: when new device subscribed, send rq list
+		void publish_slist(struct mosquitto *mosq, const std::vector<std::vector<SignalID>> &rquested)
 		{
+
 			flexbuffers::Builder builder;
-			builder.Int(mt.get());
+
+			builder.Vector([&]() {
+
+				for (auto &signal_list : rquested)
+				{
+					builder.Vector([&]() {
+						for(auto sid : signal_list)
+						{
+							builder.Int(sid);
+						}
+					});
+				}
+			});
+
 			builder.Finish();
 			auto K = builder.GetBuffer();
 
@@ -367,76 +420,6 @@ private:
 			}
 		}
 
-		class MessageType 
-		{
-		public:
-			void set(flexbuffers::Vector &x, flexbuffers::Vector &y)
-			{
-				std::lock_guard<std::mutex> mm(m);
-				sname.resize(0);
-				stype.resize(0);
-
-				for (size_t j = 0; j < x.size(); j++) {
-					sname.push_back(x[j].AsString().str());
-					std::cout << x[j].AsString().str();
-				}
-				std::cout << std::endl;
-				
-
-				for (size_t j = 0; j < y.size(); j++) {
-					stype.push_back(static_cast<SignalType>(y[j].AsInt32()));
-					std::cout << y[j].AsInt32();
-				}
-				std::cout << std::endl;
-
-				receiv = true;
-			}
-			auto get_name()
-			{
-				std::lock_guard<std::mutex> mm(m);
-				return sname;
-			}
-			auto get_type()
-			{
-				std::lock_guard<std::mutex> mm(m);
-				return stype;
-			}
-
-			bool is_ready()
-			{
-				std::lock_guard<std::mutex> mm(m);
-				return receiv;
-			}
-
-			int32_t get()
-			{
-				std::lock_guard<std::mutex> mm(m);
-				return signal_type;
-			}
-
-			void set_ids(const std::vector<int> &sid)
-			{
-				std::lock_guard<std::mutex> mm(m);
-				int32_t cont = 0;
-				for (auto id : sid)
-				{
-					cont |= 1 << id;
-				}
-				signal_type = cont;
-			}
-		private:
-
-			std::mutex m;
-			int32_t signal_type{1<<1};
-
-			std::vector<std::string> sname;
-			std::vector<SignalType> stype;
-
-
-			bool receiv {false};
-		};
-
-		MessageType mt;
 		F1 nametype_callback;
 		F2 out_callback;
 		std::string client_id;
@@ -450,6 +433,7 @@ private:
 
 	};
 
+	
 	Connection conn;
 	struct mosquitto *mosq;
 };
