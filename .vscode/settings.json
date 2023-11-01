@@ -94,6 +94,8 @@
         "span": "cpp",
         "stop_token": "cpp",
         "cinttypes": "cpp",
-        "format": "cpp"
+        "format": "cpp",
+        "unordered_set": "cpp",
+        "queue": "cpp"
     }
 }

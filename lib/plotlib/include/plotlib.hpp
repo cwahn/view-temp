@@ -385,12 +385,12 @@ namespace
 
         VectorView<const double> ts_view(size_t plot_length)
         {
-            return VectorView<const double>{ts_.end() - plot_length, plot_length};
+            return VectorView<const double>{ts_.end() - plot_length, static_cast<const int>(plot_length), static_cast<const int>(plot_length)};
         }
 
         VectorView<const double> as_view(size_t plot_length)
         {
-            return VectorView<const double>{as_.end() - plot_length, plot_length};
+            return VectorView<const double>{as_.end() - plot_length, static_cast<const int>(plot_length), static_cast<const int>(plot_length)};
         }
 
         std::string name_;

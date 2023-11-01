@@ -23,6 +23,10 @@ enable_testing()
 # openssl libssl-dev
 # libflatbuffers-dev libmosquitto-dev
 
+# MacOS Requirment
+# glfw3 
+# flatbuffers mosquitto
+
 find_package(OpenSSL REQUIRED)
 
 find_package(glfw3 REQUIRED)

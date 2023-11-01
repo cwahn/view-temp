@@ -4,6 +4,7 @@ add_executable(mk8-wifi-client_b
 
 
 
+
 if (NOT MOSQUITTO_INCLUDE_DIR)
   find_path(MOSQUITTO_INCLUDE_DIR mosquitto.h)
 endif()
@@ -29,21 +30,22 @@ mark_as_advanced(MOSQUITTO_INCLUDE_DIR MOSQUITTO_LIBRARY)
 
 find_package(Flatbuffers REQUIRED)
 
-find_package(Python COMPONENTS Interpreter REQUIRED)
-add_custom_target(
-    myCustomTarget
-    COMMAND ${Python_EXECUTABLE} ${CMAKE_SOURCE_DIR}/app/scripts/gen_signaldef.py ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_BINARY_DIR}
+
+if(APPLE)
+  target_link_directories(mk8-wifi-client_b
+    PRIVATE
+    "/opt/homebrew/lib"
+  )
+endif()
+
+target_include_directories(mk8-wifi-client_b
+  PRIVATE
+    ${MOSQUITTO_INCLUDE_DIR}
 )
-add_dependencies(mk8-wifi-client_b myCustomTarget)
-target_include_directories(mk8-wifi-client_b PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
 
 target_link_libraries(mk8-wifi-client_b
     PRIVATE
-    imgui
-    implot
     efp
-    plotlib
-    signal
     mosquitto
     flatbuffers
 )

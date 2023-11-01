@@ -2,8 +2,7 @@
 #include <chrono>
 #include <thread>
 #include <cstring>
-#include <sys/socket.h>
-#include <netinet/in.h>
+
 
 #include <functional>
 
@@ -122,15 +121,16 @@ typedef int8_t SignalThreadID;
 
 template<
 	typename F1 = std::function<void(const flexbuffers::Vector &)>,
-	typename F2 = std::function<void(const flexbuffers::Vector &)>>
+	typename F2 = std::function<void(const flexbuffers::Vector &)>,
+	typename F3 = std::function<void(const bool &)>>
 class ClientViewer
 {
 public:	
 	
 
 	//template<typename F1,typename F2>
-	ClientViewer(std::string client_id_, std::string device_id_, F1 nametype_callback, F2 signal_callback) :
-		conn(client_id_, device_id_, nametype_callback, signal_callback)
+	ClientViewer(std::string client_id_, std::string device_id_, F1 nametype_callback, F2 signal_callback, F3 disconnected_callback) :
+		conn(client_id_, device_id_, nametype_callback, signal_callback, disconnected_callback)
 	{
 			
 	}
@@ -139,6 +139,8 @@ public:
 	{
 		mosquitto_loop_stop(mosq, false);
    		mosquitto_destroy(mosq);
+
+		// todo: this command will close all session;
 		mosquitto_lib_cleanup();
 	}
 	
@@ -160,6 +162,13 @@ public:
 		mosquitto_connect_callback_set(mosq, on_connect);
 		mosquitto_subscribe_callback_set(mosq, on_subscribe);
 		mosquitto_message_callback_set(mosq, on_message);
+		{
+			flexbuffers::Builder builder;
+			builder.Int(Connection::Announce::ann_off);
+			builder.Finish();
+			auto K = builder.GetBuffer();
+			mosquitto_will_set(mosq, (conn.device_id + "/ca").c_str(), K.size(), K.data(), 2, false); 
+		}
 
 		rc = mosquitto_connect(mosq, "192.168.0.29", 9884, 60);
 		if(rc != MOSQ_ERR_SUCCESS){
@@ -261,6 +270,7 @@ private:
 		if (strcmp(msg->topic, (connn.device_id + "/da").c_str()) == 0)
 		{
 			auto ann = static_cast<typename Connection::Announce>(flexbuffers::GetRoot(received_buffer).AsInt32());
+			
 			switch(ann)
 			{
 				case Connection::Announce::ann_on:
@@ -271,7 +281,6 @@ private:
 					connn.publish_announce(mosq, Connection::Announce::ann_reply);
 					connn.cp_advance_wl();
 					break;
-					// if device disconnected here ? 
 				}
 				case Connection::Announce::ann_reply:
 				{
@@ -279,7 +288,13 @@ private:
 					connn.cp_advance_wl();
 					break;
 				}
-
+				case Connection::Announce::ann_off:
+				{
+					printf("device announce : ann_off\n");
+					connn.cp_reset();
+					connn.disconnected_callback(true);
+					break;
+				}
 				/*
 					next state should be 
 						receive signal list
@@ -288,8 +303,6 @@ private:
 
 					other sate should be ignored
 				*/
-
-				// case device off: ?
 			}
 		}
 		else if (strcmp(msg->topic, (connn.device_id + "/slist").c_str()) == 0)
@@ -325,8 +338,8 @@ private:
 	{
 	public:
 		
-		Connection(std::string client_id_, std::string device_id_, F1 &nametype_callback_, F2 &callback) :
-			client_id(client_id_),  device_id(device_id_), nametype_callback(nametype_callback_), out_callback{callback}
+		Connection(std::string client_id_, std::string device_id_, F1 &nametype_callback_, F2 &callback, F3 &disconnected_callback) :
+			client_id(client_id_),  device_id(device_id_), nametype_callback(nametype_callback_), out_callback{callback}, disconnected_callback{disconnected_callback}
 		{
 
 				
@@ -422,6 +435,8 @@ private:
 
 		F1 nametype_callback;
 		F2 out_callback;
+		F3 disconnected_callback;
+
 		std::string client_id;
 		std::string device_id;
 		// mosquitto_subscribe topic
