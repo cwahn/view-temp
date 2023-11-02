@@ -13,6 +13,10 @@ using namespace efp;
 
 constexpr const char *target_identifier = "Ars Vivendi BLE";
 
+
+/// opt/homebrew/opt/mosquitto/sbin/mosquitto -c /opt/homebrew/etc/mosquitto/mosquitto.conf
+// sudo nano /opt/homebrew/etc/mosquitto/mosquitto.conf
+
 /*
 global buffer
 
@@ -239,6 +243,9 @@ public:
         {
             std::unique_lock<std::mutex> m(m_buf);
             connected = false;
+
+            thread_data.clear();
+            thread_name_c.clear();
         };
 
         Cli = std::unique_ptr<ClientViewer<>>(new ClientViewer<>(std::string("c0"), std::string("d0"), nametype_callback, signal_callback, disconnected_callback));
@@ -449,17 +456,17 @@ int main(int, char **)
             End();
         }
 
-        // for (int tid = 0; tid < guib.thread_data.size(); ++tid)
-        // {
-        //     const auto list = guib.thread_data[tid].active_list;
-        //     const auto len = list.size();
-        //     for (int sid = 0; sid < len; ++sid)
-        //     {
-        //         if (list[sid] == 1)
-        //             window((guib.thread_data[tid].thread_name + "/" + guib.thread_data[tid].signal_name[sid]).c_str(), [&]()
-        //                    { guib.thread_data[tid].splot[sid]->plot(); });
-        //     }
-        // }
+        for (int tid = 0; tid < guib.thread_data.size(); ++tid)
+        {
+            const auto list = guib.thread_data[tid].active_list;
+            const auto len = list.size();
+            for (int sid = 0; sid < len; ++sid)
+            {
+                if (list[sid] == 1)
+                    window((guib.thread_data[tid].thread_name + "/" + guib.thread_data[tid].signal_name[sid]).c_str(), [&]()
+                           { guib.thread_data[tid].splot[sid]->plot(); });
+            }
+        }
 
         // debug window
         window("elapsed time", [&]()

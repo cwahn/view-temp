@@ -612,7 +612,7 @@ public:
 
 		int rc;
 
-		rc = mosquitto_connect(mosq, "192.168.0.47", 9884, 60);
+		rc = mosquitto_connect(mosq, "192.168.0.16", 9884, 60);
 		if (rc != MOSQ_ERR_SUCCESS)
 		{
 			mosquitto_destroy(mosq);
@@ -707,7 +707,7 @@ private:
 			
 			for(SignalThreadID tid = 0; tid < out_flag.size(); ++tid)
 			{
-				//if (!(out_bitflag & 1<<tid))continue;
+				if (!(out_bitflag & 1<<tid))continue;
 
 				const auto sig_num = SSYNC.signal_num(tid);
 				builder.Vector([&]() {
@@ -725,7 +725,7 @@ private:
 					builder.Vector([&]() {
 						for(SignalID sid : out_flag[tid])
 						{
-							// pack(builder, tid, sid);
+							pack(builder, tid, sid);
 						}
 					});
 				});

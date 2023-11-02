@@ -170,7 +170,7 @@ public:
 			mosquitto_will_set(mosq, (conn.device_id + "/ca").c_str(), K.size(), K.data(), 2, false); 
 		}
 
-		rc = mosquitto_connect(mosq, "192.168.0.16", 9884, 60);
+		rc = mosquitto_connect(mosq, "192.168.0.29", 9884, 60);
 		if(rc != MOSQ_ERR_SUCCESS){
 			mosquitto_destroy(mosq);
 			fprintf(stderr, "Error: %s\n", mosquitto_strerror(rc));
