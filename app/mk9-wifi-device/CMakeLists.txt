@@ -1,4 +1,4 @@
-add_executable(mk9-wifi-view
+add_executable(mk9-wifi-device
     "src/main.cpp"
 )
 
@@ -23,11 +23,11 @@ find_package(Flatbuffers REQUIRED)
 
 
 if(APPLE)
-  target_link_directories(mk9-wifi-view
+  target_link_directories(mk9-wifi-device
     PRIVATE
     "/opt/homebrew/lib"
   )
-  target_include_directories(mk9-wifi-view
+  target_include_directories(mk9-wifi-device
     PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     "/opt/homebrew/include"
@@ -35,13 +35,10 @@ if(APPLE)
   )
 endif()
 
-target_link_libraries(mk9-wifi-view
+
+target_link_libraries(mk9-wifi-device
     PRIVATE
-    imgui
-    implot
     efp
-    plotlib
-    signal
     zmq
     flatbuffers
 )

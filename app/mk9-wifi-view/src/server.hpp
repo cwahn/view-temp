@@ -2,21 +2,22 @@
 #include <chrono>
 #include <thread>
 #include <cstring>
-
-
+#include <map>
 #include <functional>
 
+#include "zmq.hpp"
+#include "zmq_addon.hpp"
 
-#include "mosquitto.h"
+#include "flatbuffers/flexbuffers.h"
+
 
 #include "efp.hpp"
 
 
 #include "plotlib.hpp"
-/*
- * This example shows how to write a client that subscribes to a topic and does
- * not do anything other than handle the messages that are received.
- */
+
+
+
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -24,7 +25,19 @@
 #include <unistd.h>
 
 
-#include "flatbuffers/flexbuffers.h"
+/*
+메인 스레드
+	통신 객체 생성
+	객체에 리스트 보낼것을 요청
+
+통신 스레드
+	독립적으로 계속 돌아감
+	리스트 요청이 있다면 보냄
+	기본은 수신
+	디바이스의 데이터 송신 시 콜백으로 메인에 공급
+
+*/
+
 
 
 
@@ -81,10 +94,7 @@ live -> <-live
 ok-> <- ok
 */
 
-template<typename T, typename... Args>
-std::unique_ptr<T> make_unique(Args&&... args) {
-    return std::unique_ptr<T>(new T(std::forward<Args>(args)...));
-}
+
 
 
 enum SignalType : int16_t
@@ -102,353 +112,442 @@ typedef int8_t SignalThreadID;
 
 
 
-			class ThreadSignal
-			{
-			public:
-				std::string thread_name;
-				std::vector<std::string> signal_name;
-				std::vector<SignalType> signal_type;
-			};
+class ThreadSignal
+{
+public:
+	std::string thread_name;
+	std::vector<std::string> signal_name;
+	std::vector<SignalType> signal_type;
+};
 
 
 
 
 
 
-// typedef void (*signal_callback_t)(const flexbuffers::Vector &);
 
-// typedef void (*NametypeCallbackType_t)(const std::vector<ThreadSignal>&);
 
-template<
-	typename F1 = std::function<void(const flexbuffers::Vector &)>,
-	typename F2 = std::function<void(const flexbuffers::Vector &)>,
-	typename F3 = std::function<void(const bool &)>>
 class ClientViewer
 {
 public:	
 	
+	using SignalRequestList = flexbuffers::Builder;
 
-	//template<typename F1,typename F2>
-	ClientViewer(std::string client_id_, std::string device_id_, F1 nametype_callback, F2 signal_callback, F3 disconnected_callback) :
-		conn(client_id_, device_id_, nametype_callback, signal_callback, disconnected_callback)
+	using CB_C = std::function<void(const std::string)>;
+	using CB_DC = std::function<void(const std::string)>;
+	using CB_NT = std::function<void(const std::string, const flexbuffers::Vector &)>;
+	using CB_S = std::function<void(const std::string, const flexbuffers::Vector &)>;
+
+	ClientViewer(
+		
+		std::string host_address, 
+		const CB_C &connection_callback,
+		const CB_DC &disconnection_callback,
+		const CB_NT &nametype_callback, 
+		const CB_S &signal_callback) :
+		ctx{}, 
+		ci{},
+		connection_thread{start_background_connection, std::ref(ctx), std::ref(ci), host_address,
+			CallbackList {
+				connection_callback,
+				disconnection_callback,
+				nametype_callback,
+				signal_callback
+			}}
 	{
-			
 	}
 
 	~ClientViewer()
 	{
-		mosquitto_loop_stop(mosq, false);
-   		mosquitto_destroy(mosq);
+		ci.set_close();	
 
-		// todo: this command will close all session;
-		mosquitto_lib_cleanup();
+		// todo: shutdown here is safe? should warp thread body with try{}?
+		// Cease any blocking operations in progress.
+		ctx.shutdown();
+
+		// Do a shutdown, if needed and destroy the context.
+		ctx.close();
+		connection_thread.join();
 	}
 	
-
-
-	
-	void init() 
+	void publish_slist(const std::string &device_id, const std::vector<uint8_t> &sql)
 	{
-		int rc;
-
-		mosquitto_lib_init();
-
-		mosq = mosquitto_new(conn.client_id.c_str(), true, (void *)&conn);
-		if(mosq == NULL){
-			fprintf(stderr, "Error: Out of memory.\n");
-			abort();
-		}
-
-		mosquitto_connect_callback_set(mosq, on_connect);
-		mosquitto_subscribe_callback_set(mosq, on_subscribe);
-		mosquitto_message_callback_set(mosq, on_message);
-		{
-			flexbuffers::Builder builder;
-			builder.Int(Connection::Announce::ann_off);
-			builder.Finish();
-			auto K = builder.GetBuffer();
-			mosquitto_will_set(mosq, (conn.device_id + "/ca").c_str(), K.size(), K.data(), 2, false); 
-		}
-
-		rc = mosquitto_connect(mosq, "192.168.0.29", 9884, 60);
-		if(rc != MOSQ_ERR_SUCCESS){
-			mosquitto_destroy(mosq);
-			fprintf(stderr, "Error: %s\n", mosquitto_strerror(rc));
-			abort();
-		}
-
-		rc = mosquitto_loop_start(mosq);
-		if (rc != MOSQ_ERR_SUCCESS)
-		{
-			mosquitto_destroy(mosq);
-			fprintf(stderr, "Error: %s\n", mosquitto_strerror(rc));
-		}
+		ci.pub_list(device_id, sql);
 	}
 
-void publish_slist(const std::vector<std::vector<SignalID>> &slist)
-	{
-		conn.publish_slist(mosq, slist);
-	}
 
 
 private:
 
-
-	/* Callback called when the client receives a CONNACK message from the broker. */
-	static void on_connect(struct mosquitto *mosq, void *obj, int reason_code)
+	struct CallbackList
 	{
-		Connection &connn = *(Connection *)obj;
-		int rc;
-		/* Print out the connection result. mosquitto_connack_string() produces an
-		* appropriate string for MQTT v3.x clients, the equivalent for MQTT v5.0
-		* clients is mosquitto_reason_string().
-		*/
-		printf("on_connect: %s\n", mosquitto_connack_string(reason_code));
-		if(reason_code != 0){
-			/* If the connection fails for any reason, we don't want to keep on
-			* retrying in this example, so disconnect. Without this, the client
-			* will attempt to reconnect. */
-			mosquitto_disconnect(mosq);
-		}
-
-		/* Making subscriptions in the on_connect() callback means that if the
-		* connection drops and is automatically resumed by the client, then the
-		* subscriptions will be recreated when the client reconnects. */
-		rc = mosquitto_subscribe(mosq, NULL, connn.device_id.c_str(), 0);
-		if(rc != MOSQ_ERR_SUCCESS){
-			fprintf(stderr, "Error subscribing: %s\n", mosquitto_strerror(rc));
-			mosquitto_disconnect(mosq);
-		}
-
-		rc = mosquitto_subscribe(mosq, NULL, (connn.device_id + "/da").c_str(), 2);
-		if(rc != MOSQ_ERR_SUCCESS){
-			fprintf(stderr, "Error subscribing: %s\n", mosquitto_strerror(rc));
-			mosquitto_disconnect(mosq);
-		}
-
-		rc = mosquitto_subscribe(mosq, NULL, (connn.device_id + "/slist").c_str(), 2);
-		if(rc != MOSQ_ERR_SUCCESS){
-			fprintf(stderr, "Error subscribing: %s\n", mosquitto_strerror(rc));
-			mosquitto_disconnect(mosq);
-		}
-
-		connn.publish_announce(mosq, Connection::Announce::ann_on);
-	}
-
-
-	/* Callback called when the broker sends a SUBACK in response to a SUBSCRIBE. */
-	static void on_subscribe(struct mosquitto *mosq, void *obj, int mid, int qos_count, const int *granted_qos)
-	{
-		int i;
-		bool have_subscription = false;
-
-		/* In this example we only subscribe to a single topic at once, but a
-		* SUBSCRIBE can contain many topics at once, so this is one way to check
-		* them all. */
-		for(i=0; i<qos_count; i++){
-			printf("on_subscribe: %d:granted qos = %d\n", i, granted_qos[i]);
-			if(granted_qos[i] <= 2){
-				have_subscription = true;
-			}
-		}
-		if(have_subscription == false){
-			/* The broker rejected all of our subscriptions, we know we only sent
-			* the one SUBSCRIBE, so there is no point remaining connected. */
-			fprintf(stderr, "Error: All subscriptions rejected.\n");
-			mosquitto_disconnect(mosq);
-		}
-	}
-
-
-	/* Callback called when the client receives a message. */
-	static void on_message(struct mosquitto *mosq, void *obj, const struct mosquitto_message *msg)
-	{
-		std::vector<uint8_t> received_buffer(static_cast<uint8_t*>(msg->payload), static_cast<uint8_t*>(msg->payload) + msg->payloadlen);
-		Connection &connn = *(Connection *)obj;
-
-	
-		if (strcmp(msg->topic, (connn.device_id + "/da").c_str()) == 0)
-		{
-			auto ann = static_cast<typename Connection::Announce>(flexbuffers::GetRoot(received_buffer).AsInt32());
-			
-			switch(ann)
-			{
-				case Connection::Announce::ann_on:
-				{
-					printf("device announce : ann_on\n");
-					// reset all data!!!
-					//
-					connn.publish_announce(mosq, Connection::Announce::ann_reply);
-					connn.cp_advance_wl();
-					break;
-				}
-				case Connection::Announce::ann_reply:
-				{
-					printf("device announce : ann_reply\n");
-					connn.cp_advance_wl();
-					break;
-				}
-				case Connection::Announce::ann_off:
-				{
-					printf("device announce : ann_off\n");
-					connn.cp_reset();
-					connn.disconnected_callback(true);
-					break;
-				}
-				/*
-					next state should be 
-						receive signal list
-						or
-						Connection::Announce  (because of device side reason)
-
-					other sate should be ignored
-				*/
-			}
-		}
-		else if (strcmp(msg->topic, (connn.device_id + "/slist").c_str()) == 0)
-		{
-			printf("device sent signal list.\n");
-			if (connn.cp_advance_done()) {
-				auto root = flexbuffers::GetRoot(received_buffer).AsVector();
-
-				// connn.mt.set(root);
-
-				connn.nametype_callback(root);//connn.mt.get_list());
-				
-				// todo: not be here
-				// connn.publish_slist(mosq);
-				// dont init device from here. just set device init state as "sned noting"
-			}
-		}
-		else if (strcmp(msg->topic, connn.device_id.c_str()) == 0)
-		{
-			// printf("device: signal.\n");
-			if (connn.cp_is_done()) {			
-				auto root = flexbuffers::GetRoot(received_buffer).AsVector();
-				
-				connn.out_callback(root);
-			}
-		}
-
-	}
-
-
-
-	class Connection
-	{
-	public:
-		
-		Connection(std::string client_id_, std::string device_id_, F1 &nametype_callback_, F2 &callback, F3 &disconnected_callback) :
-			client_id(client_id_),  device_id(device_id_), nametype_callback(nametype_callback_), out_callback{callback}, disconnected_callback{disconnected_callback}
-		{
-
-				
-		}
-		enum Announce : int8_t 
-		{
-			ann_on,
-			ann_reply,
-			ann_off
-
-		};
-	
-		enum ConnPhase {
-			cp_wait_response,
-			cp_wait_list,
-			cp_done,
-			done
-		};
-		enum ConnState {
-			connected,
-			disconnected,
-		};
-		void cp_reset()
-		{
-			cp = cp_wait_response;
-			// other reset work.
-		}
-		bool cp_advance_wl()
-		{
-			if(cp == cp_wait_response)
-			{
-				cp = cp_wait_list;
-				return true;
-			}
-			return false;
-		}
-		bool cp_advance_done()
-		{
-			if(cp == cp_wait_list || cp_done)
-			{
-				cp = cp_done;
-				return true;
-			}
-			return false;
-		}
-		bool cp_is_done()
-		{
-			return cp == cp_done;
-		}
-
-		void publish_announce(struct mosquitto *mosq, Announce ann)
-		{
-			flexbuffers::Builder builder;
-			builder.Int(ann);
-			builder.Finish();
-			auto K = builder.GetBuffer();
-
-			int rc = mosquitto_publish(mosq, NULL, (device_id + "/ca").c_str(), K.size(), K.data(), 2, false);
-			if (rc != MOSQ_ERR_SUCCESS)
-			{
-				fprintf(stderr, "Error publishing: %s\n", mosquitto_strerror(rc));
-			}
-		}
-
-		// todo: fix: when new device subscribed, send rq list
-		void publish_slist(struct mosquitto *mosq, const std::vector<std::vector<SignalID>> &rquested)
-		{
-
-			flexbuffers::Builder builder;
-
-			builder.Vector([&]() {
-
-				for (auto &signal_list : rquested)
-				{
-					builder.Vector([&]() {
-						for(auto sid : signal_list)
-						{
-							builder.Int(sid);
-						}
-					});
-				}
-			});
-
-			builder.Finish();
-			auto K = builder.GetBuffer();
-
-			int rc = mosquitto_publish(mosq, NULL, (device_id + "/cslist").c_str(), K.size(), K.data(), 2, false);
-			if (rc != MOSQ_ERR_SUCCESS)
-			{
-				fprintf(stderr, "Error publishing: %s\n", mosquitto_strerror(rc));
-			}
-		}
-
-		F1 nametype_callback;
-		F2 out_callback;
-		F3 disconnected_callback;
-
-		std::string client_id;
-		std::string device_id;
-		// mosquitto_subscribe topic
-
-	private:
-		ConnPhase cp{cp_wait_response};
-		ConnState cs{disconnected};
-		
-
+		const CB_C connection_callback;
+		const CB_DC disconnection_callback;
+		const CB_NT nametype_callback;
+		const CB_S signal_callback;
 	};
 
+	enum DeviceMessageType : int8_t 
+	{
+		dmt_connection,
+		dmt_alive,
+		dmt_disconnection,
+
+		dmt_specification,
+		dmt_signaldata,
+		dmt_misc,
+
+		dmt_unknown
+	};
+	enum ServerMessageType : int8_t 
+	{
+		smt_connection,
+		smt_alive,
+		smt_disconnection,
+
+		smt_specification,
+
+		smt_misc,
+
+		smt_unknown
+	};
 	
-	Connection conn;
-	struct mosquitto *mosq;
+
+	class ConnectionInfo
+	{
+	public:
+		void set_close() 
+		{
+			std::lock_guard<std::mutex> locked(m_info);
+			close_server = true;
+		}
+		bool get_close() 
+		{
+			std::lock_guard<std::mutex> locked(m_info);
+			return close_server;
+		}
+		
+		void pub_list(const std::string &device_id, const std::vector<uint8_t> &sql)
+		{
+			std::lock_guard<std::mutex> locked(m_info);
+			auto iter = dc.find(device_id);
+			if (iter != dc.end())
+			{
+				iter->second.request = true;
+				iter->second.sql = sql;
+			}
+			// id not found as connection removed id but yet notified.
+		}
+
+		template<typename F1>
+		void sub_list(F1 &send)
+		{
+			std::lock_guard<std::mutex> locked(m_info);
+			for (auto &iter : dc)
+			{
+				DeviceConnection &d = iter.second;
+				if (d.request)
+				{	
+					send(iter.first, ServerMessageType::smt_specification, d.sql);
+					d.request = false;
+				}
+			}
+		}
+
+		bool sub_connection(const std::string &id)
+		{
+			std::lock_guard<std::mutex> locked(m_info);
+			auto iter = dc.find(id);
+			if (iter != dc.end())
+			{
+				return false;
+			}
+
+			auto res = dc.emplace(id, DeviceConnection());
+			return res.second;
+		}
+
+		bool open_connection(const std::string &id)
+		{
+			std::lock_guard<std::mutex> locked(m_info);
+			auto iter = dc.find(id);
+			if (iter != dc.end())
+			{
+				dc.erase(iter);
+			}
+
+			auto res = dc.emplace(id, DeviceConnection());
+			return res.second;
+		}
+
+		void close_connection(const std::string &id)
+		{
+			std::lock_guard<std::mutex> locked(m_info);
+			auto iter = dc.find(id);
+			if (iter != dc.end())
+			{
+				dc.erase(iter);
+			}
+		}
+
+		void update_alive(const std::string &id)
+		{
+			std::lock_guard<std::mutex> locked(m_info);
+			dc[id].time = 0;
+		}
+
+	private:
+
+		struct DeviceConnection
+		{
+			//zmq::socket_t thread_socket;
+			//std::thread connection_thread;
+			int32_t time{0};
+
+			// mutex
+			bool request{false};
+			std::vector<uint8_t> sql;
+			
+		};
+		std::mutex m_info;
+
+		std::map<std::string, DeviceConnection> dc;
+
+		bool close_server{false};
+		
+	};
+
+	class connect_monitor_t : public zmq::monitor_t {
+	public:
+		connect_monitor_t(zmq::socket_t &socket, std::string addr) :
+		socket(socket), addr(addr)
+		{
+			init(socket, "inproc://monitor_pull", ZMQ_EVENT_ALL);
+
+		}
+
+		void on_monitor_started() override
+		{
+			// socket.bind(addr);
+			std::cout << "on_monitor_started" << std::endl;
+		}   
+
+		void on_event_connected(const zmq_event_t& event,
+								const char* addr) override
+		{
+			std::cout << "on_event_connected " << addr << std::endl;
+		}
+		void on_event_connect_delayed(const zmq_event_t& event,
+								const char* addr) override
+		{
+			std::cout << "on_event_connect_delayed " << addr << std::endl;
+		}		
+		void on_event_connect_retried(const zmq_event_t& event,
+								const char* addr) override
+		{
+			std::cout << "on_event_connect_retried " << addr << std::endl;
+		}
+		void on_event_listening(const zmq_event_t& event,
+								const char* addr) override
+		{
+			connection = true;
+			std::cout << "on_event_listening " << addr << std::endl;
+		}
+		void on_event_bind_failed(const zmq_event_t& event,
+								const char* addr) override
+		{
+			std::cout << "on_event_bind_failed " << addr << std::endl;
+		}
+		void on_event_accepted(const zmq_event_t& event,
+								const char* addr) override
+		{
+			std::cout << "on_event_accepted " << addr << std::endl;
+		}
+		void on_event_accept_failed(const zmq_event_t& event,
+								const char* addr) override
+		{
+			std::cout << "on_event_accept_failed " << addr << std::endl;
+		}
+		void on_event_closed(const zmq_event_t& event,
+								const char* addr) override
+		{
+			connection = false;
+			std::cout << "on_event_closed " << addr << std::endl;
+		}
+		void on_event_close_failed(const zmq_event_t& event,
+								const char* addr) override
+		{
+			std::cout << "on_event_close_failed " << addr << std::endl;
+		}
+		void on_event_disconnected(const zmq_event_t& event,
+								const char* addr) override
+		{
+			std::cout << "on_event_disconnected " << addr << std::endl;
+		}
+
+		bool check_events()
+		{
+			for(int i = 0; i < 10; ++i) 
+			{
+				if(!check_event())
+					break;
+			}
+
+			return connection;
+		}
+		zmq::socket_t &socket;
+		std::string addr;
+
+		bool connection{false};
+	};
+
+
+	static void start_background_connection(
+		zmq::context_t &ctx,  
+		ConnectionInfo &ci,
+		const std::string host_address,
+		const CallbackList cb_list) 
+	{
+		printf("start_background_connection bind\n");
+		zmq::socket_t sock_router(ctx, zmq::socket_type::router);
+		connect_monitor_t monitor_router(sock_router, host_address);
+
+		auto send_signal_list = [&](const std::string &identity, ServerMessageType smt, const std::vector<uint8_t> &list) {
+			zmq::multipart_t mq(identity);
+
+			flexbuffers::Builder builder;
+			builder.Int(smt);
+			builder.Finish();
+
+			mq.addmem(builder.GetBuffer().data(), builder.GetBuffer().size());
+			mq.addmem(list.data(), list.size());
+			auto res = zmq::send_multipart(sock_router, mq, zmq::send_flags::dontwait);
+		};
+
+
+		while (!ci.get_close()) 
+		{
+
+			// router disconnected. await for reconnection of zmq
+			if (!monitor_router.check_events())
+			{
+				int reconection_timeout = 300;
+				while (true){
+					if (ci.get_close())
+					{
+						break;
+					}
+
+					try {
+						sock_router.bind(host_address);
+						reconection_timeout = 300;
+						break;
+					}
+					catch(zmq::error_t err) {
+
+						monitor_router.check_events();		
+						printf("failed: %s. Retry bind...\n", err.what());
+						std::this_thread::sleep_for(std::chrono::milliseconds(reconection_timeout));
+						reconection_timeout = std::min(5000, reconection_timeout*2);
+					}
+				}
+			}
+
+
+			process_message(sock_router, ci, cb_list);
+
+
+			ci.sub_list(send_signal_list);
+
+			// check heartbeat and disconnect device ?
+
+			
+			std::this_thread::sleep_for(std::chrono::microseconds(3000));
+			
+		}
+
+		//monitor_router.;
+		
+
+
+	}
+
+
+	static void process_message(
+		zmq::socket_t &router,
+		ConnectionInfo &ci,
+		const CallbackList &cb_list
+	)
+	{
+		std::vector<zmq::message_t> msgs;
+		if (!zmq::recv_multipart(router, std::back_inserter(msgs), zmq::recv_flags::dontwait))
+		{
+			return;
+		}
+
+		std::string id = msgs[0].to_string();
+		DeviceMessageType dmt = static_cast<DeviceMessageType>(flexbuffers::GetRoot(static_cast<const uint8_t*>(msgs[1].data()), msgs[1].size()).AsInt32());
+
+		bool update = true;
+
+		if (ci.sub_connection(id))
+		{
+			cb_list.connection_callback(id);
+		}
+
+		switch(dmt)
+		{
+			// always destroy and reconstruct data about this identity
+			case dmt_connection:
+			{
+				ci.open_connection(id);
+				cb_list.connection_callback(id);
+				break;
+			}
+			// always destroy data about this identity
+			case dmt_disconnection:
+			{
+				update = false;
+				ci.close_connection(id);
+				cb_list.disconnection_callback(id);
+				break;
+			}			
+
+			case dmt_alive:
+			{
+				break;
+			}
+
+			case dmt_specification:
+			{
+				printf("dmt_specification\n");
+				//for(auto &m : msgs) printf("size %d\n", m.size());
+
+				auto root = flexbuffers::GetRoot(static_cast<const uint8_t*>(msgs[2].data()), msgs[2].size()).AsVector();
+				cb_list.nametype_callback(id, root);
+				break;
+			}
+			case dmt_signaldata:
+			{
+				auto root = flexbuffers::GetRoot(static_cast<const uint8_t*>(msgs[2].data()), msgs[2].size()).AsVector();
+				cb_list.signal_callback(id, root);
+				break;
+			}
+			case dmt_misc:
+			{
+				break;
+			}
+	
+		}
+
+		ci.update_alive(id);
+
+		//todo: destroy object
+	}
+
+
+	zmq::context_t ctx;
+	std::thread connection_thread;
+	ConnectionInfo ci;
 };
+

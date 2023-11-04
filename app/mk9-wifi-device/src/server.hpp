@@ -12,8 +12,8 @@
 
 
 
-
-#include "mosquitto.h"
+#include "zmq.hpp"
+#include "zmq_addon.hpp"
 #include "flatbuffers/flexbuffers.h"
 
 #include "efp.hpp"
@@ -561,124 +561,359 @@ assume there be supplied data
 */
 
 
+// todo: how to stop?
 class Client
 {
 public:
-
-
-	Client(std::string device_id_) :
-		conn(device_id_)
+	Client(std::string server_address) :
+		ctx{},
+		server_address{server_address}
 	{
-			
 	}
 	~Client()
 	{
-		mosquitto_lib_cleanup();
+		
 	}
 
-	void init()
-	{
-		// wait for subscribe_thread()
+	class connect_monitor_t : public zmq::monitor_t {
+	public:
+		connect_monitor_t(zmq::socket_t &socket, std::string addr) :
+		socket(socket), addr(addr)
+		{
+			init(socket, "inproc://monitor_pull", ZMQ_EVENT_ALL);
+		}
+
+		void on_monitor_started() override
+		{
+			// socket.bind(addr);
+			std::cout << "on_monitor_started" << std::endl;
+		}   
+
+		void on_event_connected(const zmq_event_t& event,
+								const char* addr) override
+		{
+			connection = true;
+			std::cout << "on_event_connected " << addr << std::endl;
+		}
+		void on_event_connect_delayed(const zmq_event_t& event,
+								const char* addr) override
+		{
+			//std::cout << "on_event_connect_delayed " << addr << std::endl;
+		}		
+		void on_event_connect_retried(const zmq_event_t& event,
+								const char* addr) override
+		{
+			//std::cout << "on_event_connect_retried " << addr << std::endl;
+		}
+		void on_event_listening(const zmq_event_t& event,
+								const char* addr) override
+		{
+			//connection = true;
+			std::cout << "on_event_listening " << addr << std::endl;
+		}
+		void on_event_bind_failed(const zmq_event_t& event,
+								const char* addr) override
+		{
+			std::cout << "on_event_bind_failed " << addr << std::endl;
+		}
+		void on_event_accepted(const zmq_event_t& event,
+								const char* addr) override
+		{
+			//connection = true;
+			std::cout << "on_event_accepted " << addr << std::endl;
+		}
+		void on_event_accept_failed(const zmq_event_t& event,
+								const char* addr) override
+		{
+			//connection = false;
+			std::cout << "on_event_accept_failed " << addr << std::endl;
+		}
+		void on_event_closed(const zmq_event_t& event,
+								const char* addr) override
+		{
+			//connection = false;
+			//std::cout << "on_event_closed " << addr << std::endl;
+		}
+		void on_event_close_failed(const zmq_event_t& event,
+								const char* addr) override
+		{
+			std::cout << "on_event_close_failed " << addr << std::endl;
+		}
+		void on_event_disconnected(const zmq_event_t& event,
+								const char* addr) override
+		{
+			connection = false;
+			std::cout << "on_event_disconnected " << addr << std::endl;
+		}
+
+		bool check_events()
+		{
+			for(int i = 0; i > -1; ++i) 
+			{
+				if(!check_event())
+					break;
+			}
+
+			return connection;
+		}
+		zmq::socket_t &socket;
+		std::string addr;
+
+		bool connection{false};
+	};
+
+
+
+	void operator()() {
+
 		int16_t first = 0;
 		while(first == 0) {
 			first |= SSYNC.is_signal_inited();
 			std::this_thread::sleep_for(std::chrono::milliseconds(1000));
 		}
 
-		printf("at least one subscribe_thread filled  \n");
+		printf("start_background_connection bind\n");
+		zmq::socket_t sock_dealer(ctx, zmq::socket_type::dealer);
+		sock_dealer.set(zmq::sockopt::routing_id, std::string("device001"));
+		sock_dealer.set(zmq::sockopt::reconnect_ivl, 1000);
+		sock_dealer.set(zmq::sockopt::reconnect_ivl_max, 5000);
+
+		sock_dealer.set(zmq::sockopt::heartbeat_ivl, 3000);
+		sock_dealer.set(zmq::sockopt::heartbeat_timeout, 30000);
 
 
-		mosquitto_lib_init();
 
-
-		mosq = mosquitto_new("d0", true, (void *)&conn);
-		if (mosq == NULL)
-		{
-			fprintf(stderr, "Error: Out of memory.\n");
-			abort();
-		}
-
-
-		mosquitto_connect_callback_set(mosq, on_connect);
-		mosquitto_message_callback_set(mosq, on_message);
-		{
-			flexbuffers::Builder builder;
-			builder.Int(Connection::Announce::ann_off);
-			builder.Finish();
-			auto K = builder.GetBuffer();
-			mosquitto_will_set(mosq, "d0/da", K.size(), K.data(), 2, false); 
-		}
-					
-
-		int rc;
-
-		rc = mosquitto_connect(mosq, "192.168.0.16", 9884, 60);
-		if (rc != MOSQ_ERR_SUCCESS)
-		{
-			mosquitto_destroy(mosq);
-			fprintf(stderr, "Error: %s\n", mosquitto_strerror(rc));
-		}
-
-		/* Run the network loop in a background thread, this call returns quickly. */
-		rc = mosquitto_loop_start(mosq);
-		if (rc != MOSQ_ERR_SUCCESS)
-		{
-			mosquitto_destroy(mosq);
-			fprintf(stderr, "Error: %s\n", mosquitto_strerror(rc));
-		}
+		connect_monitor_t monitor_dealer(sock_dealer, server_address);
 
 
 		auto dataRate = std::chrono::microseconds(8000);
+		// auto start = std::chrono::high_resolution_clock::now();
 
-		auto s0 = std::chrono::high_resolution_clock::now();
-
-		// std::chrono::high_resolution_clock::time_point start = std::chrono::high_resolution_clock::now();
-		int a = 0;
-
-		while (true)
+		while (!close_device) 
 		{
 			auto start = std::chrono::high_resolution_clock::now();
 
-			
-			if(conn.is_ready()) {
-				publish_sensor_data(mosq);
-				// ++a;
-				// auto d = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - s0);
-				// if (d > std::chrono::milliseconds(1000))
-				// {
-				// 	printf("\n\n\n\n done %d\n", a);
-				// 	std::this_thread::sleep_for(std::chrono::milliseconds(100));
-				// 	break;
-				// }
+			if (!monitor_dealer.check_events() || cs_at(ConnectionStage::sg_disconnected))
+			{
+				// reset some data
+				
+				int reconection_timeout = 1000;
+
+				while (!close_device) {
+					// if (ci.get_close())
+					// {
+					// 	break;
+					// }
+
+					try {
+						printf("reconnect...\n");
+						sock_dealer.connect(server_address);
+						cs_reset();
+						if (monitor_dealer.check_events())
+						{
+							cs_advance(ConnectionStage::sg_sent_list);
+							publish_list_type(sock_dealer);
+							break;
+						}
+						else
+						{
+							std::this_thread::sleep_for(std::chrono::milliseconds(reconection_timeout));
+							reconection_timeout = std::min(5000, reconection_timeout*2);
+						}
+					}
+					catch(zmq::error_t err) {
+
+						monitor_dealer.check_events();		
+						printf("failed: %s. Retry connect...\n", err.what());
+						std::this_thread::sleep_for(std::chrono::milliseconds(reconection_timeout));
+						reconection_timeout = std::min(5000, reconection_timeout*2);
+					}
+				}
+
+
 			}
 
+			
+			
+			process_message(sock_dealer);
 
+			if (cs_check(ConnectionStage::sg_received_spec))
+				publish_sensor_data(sock_dealer);
+			
+		
+			// check heartbeat and disconnect device ?
+
+			
 			auto dt = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - start);
 			if (dataRate > dt)
 			{
 				std::this_thread::sleep_for(dataRate - dt);
 			}
 		}
+
+    }
+
+private:
+	enum DeviceMessageType : int8_t 
+	{
+		dmt_connection,
+		dmt_alive,
+		dmt_disconnection,
+
+		dmt_specification,
+		dmt_signaldata,
+		dmt_misc,
+
+		dmt_unknown
+	};
+	enum ServerMessageType : int8_t 
+	{
+		smt_connection,
+		smt_alive,
+		smt_disconnection,
+
+		smt_specification,
+
+		smt_misc,
+
+		smt_unknown
+	};
+
+	struct ConnectionStage
+	{
+		static constexpr int sg_disconnected{0};
+		static constexpr int sg_sent_list{1};
+		static constexpr int sg_received_spec{2};
+		static constexpr int sg_send_signal{3};
+	};
+
+	void cs_reset()
+	{
+		cstage = ConnectionStage::sg_disconnected;
+		// other reset work.
+	}
+
+	bool cs_advance(int cs_adv)
+	{
+		if(cstage >= std::max(cs_adv-1, ConnectionStage::sg_disconnected))
+		{
+			cstage = std::max(cstage, cs_adv);
+			return true;
+		}
+		return false;
+	}
+
+	bool cs_check(int cs)
+	{
+		return cstage >= std::max(cs, ConnectionStage::sg_disconnected);
+	}
+	bool cs_at(int cs)
+	{
+		return cstage == ConnectionStage::sg_disconnected;
+	}
+	bool cs_done()
+	{
+		return cstage == ConnectionStage::sg_send_signal;
+	}
+
+	void send_list(zmq::socket_t &dealer, DeviceMessageType dmt, const std::vector<uint8_t> &list) 
+	{
+		zmq::multipart_t mq;
+
+		flexbuffers::Builder builder;
+		builder.Int(dmt);
+		builder.Finish();
+
+		mq.addmem(builder.GetBuffer().data(), builder.GetBuffer().size());
+		mq.addmem(list.data(), list.size());
+		auto res = zmq::send_multipart(dealer, mq, zmq::send_flags::dontwait);
 	}
 
 
-private:
+	void process_message(zmq::socket_t &dealer)
+	{
+		std::vector<zmq::message_t> msgs;
+		if (!zmq::recv_multipart(dealer, std::back_inserter(msgs), zmq::recv_flags::dontwait))
+		{
+			// nothing 
+			return;
+		}
+		
+		//std::string id = msgs[0].to_string();
+		ServerMessageType smt = static_cast<ServerMessageType>(flexbuffers::GetRoot(static_cast<uint8_t*>(msgs[0].data()), msgs[0].size()).AsInt32());
 
-	void publish_sensor_data(struct mosquitto *mosq)
+		bool update = true;
+
+		switch(smt)
+		{
+			// always destroy and reconstruct data about this identity
+			case smt_connection:
+			{
+				break;
+			}
+			// always destroy data about this identity
+			case smt_disconnection:
+			{
+				update = false;
+				break;
+			}			
+
+			case smt_alive:
+			{
+				break;
+			}
+
+			case smt_specification:
+			{
+				printf("client sent signal list.\n");
+				//for(auto &m : msgs) printf("size %d\n", m.size());
+
+				if (cs_advance(ConnectionStage::sg_received_spec)) {
+					auto root = flexbuffers::GetRoot(static_cast<const uint8_t*>(msgs[1].data()), msgs[1].size()).AsVector();
+					const auto tlen = root.size();
+
+					thread_signal_list.clear();
+					thread_signal_list.resize(tlen);
+					// FULL SIZED
+					for (int tid = 0; tid < tlen; ++tid) {
+
+						const auto f_signal_list = root[tid].AsVector();
+						const auto slen = f_signal_list.size();
+
+						auto &signal_list = thread_signal_list[tid];
+						signal_list.reserve(slen);
+						
+						for (int sid = 0; sid < slen; ++sid) {
+							signal_list.emplace_back(f_signal_list[sid].AsInt32());
+							printf("%d, ", f_signal_list[sid].AsInt32());
+						}
+						printf("\n");
+					}
+				}
+				break;
+			}
+
+			case smt_misc:
+			{
+				publish_list_type(dealer);
+				break;
+			}
+	
+		}
+
+		//todo: destroy object
+	}
+
+
+	void publish_sensor_data(zmq::socket_t &dealer)
 	{
 		int rc;
-
 		int16_t buffer_ready = SSYNC.check_swap_done();
 
-		// todo: copy or mutex?
-		const std::vector<std::vector<SignalID>> out_flag = conn.get_type();
-		
-	
-
 		int16_t out_bitflag = 0;
-		for (auto t = 0; t < out_flag.size(); ++t) 
+		for (auto t = 0; t < thread_signal_list.size(); ++t) 
 		{
-			out_bitflag |= out_flag[t].size() > 0 ? 1<<t : 0;
+			out_bitflag |= thread_signal_list[t].size() > 0 ? 1<<t : 0;
 			//printf(" %d,", buffer_ready & 1<<t  ? 1 : 0);
 			//printf(" %d,", out_flag[t].size());
 		}
@@ -696,8 +931,7 @@ private:
 			prepared(swaped) thread
 		*/
 
-
-		// although SignalID always transmitted together, but actual load is small
+		// although SignalID always transmitted together, actual load is small
 		flexbuffers::Builder builder;
 		builder.Vector([&]() {
 
@@ -705,7 +939,7 @@ private:
 
 			// const auto rq_thread_num = std::bitset<16>(out_bitflag).count();
 			
-			for(SignalThreadID tid = 0; tid < out_flag.size(); ++tid)
+			for(SignalThreadID tid = 0; tid < thread_signal_list.size(); ++tid)
 			{
 				if (!(out_bitflag & 1<<tid))continue;
 
@@ -714,7 +948,7 @@ private:
 
 					builder.Vector([&]() {
 						
-						for(SignalID sid : out_flag[tid])
+						for(SignalID sid : thread_signal_list[tid])
 						{
 							builder.Int(sid);
 							//printf("%d, ", sid);
@@ -723,7 +957,7 @@ private:
 					});
 
 					builder.Vector([&]() {
-						for(SignalID sid : out_flag[tid])
+						for(SignalID sid : thread_signal_list[tid])
 						{
 							pack(builder, tid, sid);
 						}
@@ -732,363 +966,94 @@ private:
 			}
 		});
 		builder.Finish();
-		auto K = builder.GetBuffer();
-
-
-
-			//for(int sid = 0; sid < SIGNAL_NUM; ++sid)
-			// {
-			// 	int sid = 1;
-			// 	auto tid = SIGNAL_THREAD[sid];
-			// 	if (result & 1 << tid)// && out_flag & 1 << sid)
-			// 	{
-			// 		auto buf = SSYNC.get_buffer<int>(tid, static_cast<SignalID>(sid));
-			// 		for(int i = 0; i < buf->size(); ++i)
-			// 		{
-			// 			auto A = (*buf).pop_front(); 	
-
-			// 			printf("%d, ", A);
-			// 		}
-			// 		printf("\n");
-			// 		// SSYNC.reset_buffer<int>(tid, static_cast<SignalID>(sid));
-			// 	}
-			// }
-
-
-
-		// auto buf = SSYNC.get_buffer<type>(tid, sid); 
-		//  for (int i = 0; i < 1; i++)
-		// 	builder.TYPE((*buf).pop_front()); 	
 
 
 		SSYNC.notify_swap();
 
-		rc = mosquitto_publish(mosq, NULL, conn.device_id.c_str(), K.size(), K.data(), 0, false);
-		if (rc != MOSQ_ERR_SUCCESS)
-		{
-			fprintf(stderr, "Error publishing: %s\n", mosquitto_strerror(rc));
-		}
-
+		send_list(dealer, DeviceMessageType::dmt_signaldata, builder.GetBuffer());
 	}
 
-
-
-	/* Callback called when the client receives a CONNACK message from the broker. */
-	static void on_connect(struct mosquitto *mosq, void *obj, int reason_code)
+	void publish_list_type(zmq::socket_t &dealer)
 	{
-		printf("on_connect: %s\n", mosquitto_connack_string(reason_code));
-		if (reason_code != 0)
+		flexbuffers::Builder builder;
+
+		// for(int sid = 0; sid < SIGNAL_NUM; ++sid)
+		// {
+		// 	std::cout << SIGNAL_NAME[sid] << ", ";
+		// }
+		// std::cout << std::endl;
+
+		builder.Vector([&]() 
 		{
-			/* If the connection fails for any reason, we don't want to keep on
-			* retrying in this example, so disconnect. Without this, the client
-			* will attempt to reconnect. */
-			// mosquitto_disconnect(mosq);
-			return;
-		}
-		
-		Connection &connn = *(Connection *)obj;
-
-		int rc;
-		rc = mosquitto_subscribe(mosq, NULL, (connn.device_id + "/ca").c_str(), 2);
-		if (rc != MOSQ_ERR_SUCCESS)
-		{
-			fprintf(stderr, "Error subscribing: %s\n", mosquitto_strerror(rc));
-			/* We might as well disconnect if we were unable to subscribe */
-			mosquitto_disconnect(mosq);
-		}
-		rc = mosquitto_subscribe(mosq, NULL, (connn.device_id + "/cslist").c_str(), 2);
-		if (rc != MOSQ_ERR_SUCCESS)
-		{
-			fprintf(stderr, "Error subscribing: %s\n", mosquitto_strerror(rc));
-			/* We might as well disconnect if we were unable to subscribe */
-			mosquitto_disconnect(mosq);
-		}
-
-		connn.publish_announce(mosq, Connection::Announce::ann_on);
-		/* You may wish to set a flag here to indicate to your application that the
-		* client is now connected. */
-	}
-
-	/* Callback called when the client knows to the best of its abilities that a
-	* PUBLISH has been successfully sent. For QoS 0 this means the message has
-	* been completely written to the operating system. For QoS 1 this means we
-	* have received a PUBACK from the broker. For QoS 2 this means we have
-	* received a PUBCOMP from the broker. */
-	static void on_publish(struct mosquitto *mosq, void *obj, int mid)
-	{
-		printf("Message with mid %d has been published.\n", mid);
-	}
-
-	static void on_message(struct mosquitto *mosq, void *obj, const struct mosquitto_message *msg)
-	{
-		std::vector<uint8_t> received_buffer(static_cast<uint8_t*>(msg->payload), static_cast<uint8_t*>(msg->payload) + msg->payloadlen);
-		Connection &connn = *(Connection *)obj;
-
-		if (strcmp(msg->topic, (connn.device_id + "/ca").c_str()) == 0)
-		{
-			auto ann = static_cast<typename Connection::Announce>(flexbuffers::GetRoot(received_buffer).AsInt32());
-			switch(ann)
+			const auto thread_num = SSYNC.thread_num();
+			for(SignalThreadID tid = 0; tid < thread_num; ++tid)
 			{
-				case Connection::Announce::ann_on:
-				{
-					printf("client announce : ann_on\n");
-					// reset all data!!!
-					//
-					connn.publish_announce(mosq, Connection::Announce::ann_reply);
-					connn.cp_advance_done();
-					break;
-					// if device disconnected here ? 
-				}
-				case Connection::Announce::ann_reply:
-				{
-					printf("client announce : ann_reply\n");
-					connn.cp_advance_done();
-					break;
-				}
-				case Connection::Announce::ann_off:
-				{
-					printf("deviclientce announce : ann_off\n");
-					connn.cp_reset();
-					break;
-				}
 				/*
-					next state should be 
-						sebd signal list
-						or
-						Connection::Announce  (because of client side reason)
-
-					other sate should be ignored ??
+					!!! THIS MAY BE UNSAFE READ !!!
 				*/
+				const auto sig_num = SSYNC.signal_num(tid);
 
-			}
-
-			connn.publish_list_type(mosq);
-		}
-		else if (strcmp(msg->topic, (connn.device_id + "/cslist").c_str()) == 0)
-		{
-			printf("client sent signal list.\n");
-			if (connn.cp_advance_done()) {
-				auto root = flexbuffers::GetRoot(received_buffer).AsVector();
-				const auto tlen = root.size();
-
-				std::vector<std::vector<SignalID>> thread_signal_list(tlen);
-				// FULL SIZED
-				for (int tid = 0; tid < tlen; ++tid) {
-
-					const auto f_signal_list = root[tid].AsVector();
-					const auto slen = f_signal_list.size();
-
-					auto &signal_list = thread_signal_list[tid];
-					signal_list.reserve(slen);
-					
-					for (int sid = 0; sid < slen; ++sid) {
-						signal_list.emplace_back(f_signal_list[sid].AsInt32());
-						printf("%d, ", f_signal_list[sid].AsInt32());
-					}
-					printf("\n");
-				}
-				// printf("\n");
+				// thread name
+				builder.String(SSYNC.get_tname(tid));
 				
-				connn.set_type(thread_signal_list);
+				// vector of signal name
+				builder.Vector([&]() 
+				{
+					for(int sid = 0; sid < sig_num; ++sid)
+					{
+						builder.String(SSYNC.get_sname(tid, sid));
+					}
+				});
+
+				// vector of signal type
+				builder.Vector([&]()
+				{
+					for(int sid = 0; sid < sig_num; ++sid)
+					{
+						builder.Int(SSYNC.get_stype(tid, sid));
+					}
+				});
 			}
-		}
+
+		});
+
+		builder.Finish();
+	
+		// std::vector<uint8_t> rb(K.data(), K.data() + K.size());
+		// 	auto root = flexbuffers::GetRoot(rb).AsVector();
+		// 	auto sname = root[0].AsVector();
+		// 	auto stype = root[1].AsVector();
+
+		// 	for (size_t j = 0; j < sname.size(); j++) {
+		// 		std::cout << sname[j].AsString().str();
+		// 	}
+		// 	std::cout << std::endl;
+			
+
+		// 	for (size_t j = 0; j < stype.size(); j++) {
+		// 		std::cout << stype[j].AsInt32();
+		// 	}
+		// 	std::cout << std::endl;
+		printf("dmt_specification size %d\n", builder.GetBuffer().size());
+		send_list(dealer, DeviceMessageType::dmt_specification, builder.GetBuffer());
 	}
 
 
-	class Connection
-	{
-	public:
-		Connection(std::string device_id_) :
-			device_id(device_id_)
-		{
 
-				
-		}
-		enum Announce : int8_t 
-		{
-			ann_on,
-			ann_reply,
-			ann_off
+	zmq::context_t ctx;
+	std::string server_address;
 
-		};
+	// receive specification, reset everytime  
+	std::vector<std::vector<SignalID>> thread_signal_list;
 	
-		enum ConnPhase {
-			cp_wait_response,
-			cp_done,
-			done
-		};
-	
-		void cp_reset()
-		{
-			cp = cp_wait_response;
-			mt.reset();
-			// other reset work.
-		}
-		bool cp_advance_done()
-		{
-			if(cp == cp_wait_response || cp_done)
-			{
-				cp = cp_done;
-				return true;
-			}
-			return false;
-		}
-		bool cp_is_done()
-		{
-			return cp == cp_done;
-		}
+	// bool received_specification{false};
 
+	bool close_device{false};
 
+	int cstage{ConnectionStage::sg_disconnected};
 
-		void set_type(const std::vector<std::vector<SignalID>>&rec_type)
-		{
-			mt.set(rec_type);
-		}
-
-		std::vector<std::vector<SignalID>> get_type()
-		{
-			return mt.get();
-		}
-
-		// received client sent signal list 
-		bool is_ready() 
-		{
-			return mt.is_ready();
-		}
-
-		void publish_announce(struct mosquitto *mosq, Announce ann)
-		{
-			flexbuffers::Builder builder;
-			builder.Int(ann);
-			builder.Finish();
-			auto K = builder.GetBuffer();
-
-			int rc = mosquitto_publish(mosq, NULL, (device_id + "/da").c_str(), K.size(), K.data(), 2, false);
-			if (rc != MOSQ_ERR_SUCCESS)
-			{
-				fprintf(stderr, "Error publishing: %s\n", mosquitto_strerror(rc));
-			}
-		}
-
-		void publish_list_type(struct mosquitto *mosq)
-		{
-			flexbuffers::Builder builder;
-
-			// for(int sid = 0; sid < SIGNAL_NUM; ++sid)
-			// {
-			// 	std::cout << SIGNAL_NAME[sid] << ", ";
-			// }
-			// std::cout << std::endl;
-
-
-			builder.Vector([&]() 
-			{
-				const auto thread_num = SSYNC.thread_num();
-				for(SignalThreadID tid = 0; tid < thread_num; ++tid)
-				{
-					/*
-						!!! THIS MAY BE UNSAFE READ !!!
-					*/
-					const auto sig_num = SSYNC.signal_num(tid);
-
-					// thread name
-					builder.String(SSYNC.get_tname(tid));
-					
-					// vector of signal name
-					builder.Vector([&]() 
-					{
-						for(int sid = 0; sid < sig_num; ++sid)
-						{
-							builder.String(SSYNC.get_sname(tid, sid));
-						}
-					});
-
-					// vector of signal type
-					builder.Vector([&]()
-					{
-						for(int sid = 0; sid < sig_num; ++sid)
-						{
-							builder.Int(SSYNC.get_stype(tid, sid));
-						}
-					});
-				}
-
-			});
-
-			builder.Finish();
-			auto K = builder.GetBuffer();
-
-			// std::vector<uint8_t> rb(K.data(), K.data() + K.size());
-			// 	auto root = flexbuffers::GetRoot(rb).AsVector();
-			// 	auto sname = root[0].AsVector();
-			// 	auto stype = root[1].AsVector();
-
-			// 	for (size_t j = 0; j < sname.size(); j++) {
-			// 		std::cout << sname[j].AsString().str();
-			// 	}
-			// 	std::cout << std::endl;
-				
-
-			// 	for (size_t j = 0; j < stype.size(); j++) {
-			// 		std::cout << stype[j].AsInt32();
-			// 	}
-			// 	std::cout << std::endl;
-
-
-
-			int rc = mosquitto_publish(mosq, NULL, (device_id + "/slist").c_str(), K.size(), K.data(), 2, false);
-			if (rc != MOSQ_ERR_SUCCESS)
-			{
-				fprintf(stderr, "Error publishing: %s\n", mosquitto_strerror(rc));
-			}
-		}
-
-		const std::string device_id;
-
-
-	private:
-
-		class MessageType 
-		{
-		public:
-			bool is_ready()
-			{
-				std::lock_guard<std::mutex> m_lock(m);
-				return receiv;
-			}
-			void set(const std::vector<std::vector<SignalID>> &rec_type)
-			{
-				std::lock_guard<std::mutex> m_lock(m);
-				thread_signal_list = rec_type;
-				receiv = true;
-			}
-			std::vector<std::vector<SignalID>> get()
-			{
-				std::lock_guard<std::mutex> m_lock(m);
-				return thread_signal_list;
-			}
-
-			void reset()
-			{
-				std::lock_guard<std::mutex> m_lock(m);
-				receiv = false;
-				thread_signal_list.clear();
-			}
-
-		private:
-
-			std::mutex m;
-			std::vector<std::vector<SignalID>> thread_signal_list;
-			bool receiv {false};
-		};
-
-		MessageType mt;
-		ConnPhase cp{cp_wait_response};
-	};
-
-	struct mosquitto *mosq;
-	Connection conn;
 };
+
 
 
 
@@ -1105,8 +1070,8 @@ private:
 
 void con()
 {
-	Client x(std::string("d0"));
-	x.init();
+	Client x(std::string("tcp://192.168.0.47:5555"));
+	x();
 }
 
 
